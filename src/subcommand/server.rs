@@ -7,6 +7,8 @@ use {
   },
   super::*,
   crate::apis::InscriptionAPI,
+  crate::apis::InscriptionsAPI,
+  crate::apis::OutputAPI,
   crate::apis::SatAPI,
   crate::page_config::PageConfig,
   crate::templates::{
@@ -178,10 +180,11 @@ impl Server {
           get(Self::inscription_api),
         )
         .route("/api/output/:output", get(Self::output_api))
-        // .route(
-        //   "/api/inscription-index/:index",
-        //   get(Self::inscription_index_api),
-        // )
+        .route(
+          "/api/inscription-index/:index",
+          get(Self::inscription_index_api),
+        )
+        .route("/api/inscriptions/:from", get(Self::inscriptions_from_api))
         .route("/api/test", get(Self::test_api))
         .layer(Extension(index))
         .layer(Extension(page_config))
@@ -540,7 +543,7 @@ impl Server {
     Extension(page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
     Path(outpoint): Path<OutPoint>,
-  ) -> ServerResult<PageHtml<OutputHtml>> {
+  ) -> ServerResult<Json<OutputAPI>> {
     let list = if index.has_sat_index()? {
       index.list(outpoint)?
     } else {
@@ -572,64 +575,91 @@ impl Server {
 
     let inscriptions = index.get_inscriptions_on_output(outpoint)?;
 
-    Ok(
-      OutputHtml {
-        outpoint,
-        inscriptions,
-        list,
-        chain: page_config.chain,
-        output,
-      }
-      .page(page_config, index.has_sat_index()?),
-    )
+    Ok(Json(OutputAPI {
+      outpoint: (outpoint),
+      list: (list),
+      chain: (page_config.chain),
+      output: (output),
+      inscriptions: (inscriptions),
+    }))
   }
 
   async fn inscription_index_api(
     Extension(page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
-    Path(outpoint): Path<OutPoint>,
-  ) -> ServerResult<PageHtml<OutputHtml>> {
-    let list = if index.has_sat_index()? {
-      index.list(outpoint)?
+    Path(inscription_index): Path<u64>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    let inscription_id = index
+      .get_inscription_id_by_inscription_number(inscription_index)?
+      .ok_or_not_found(|| format!("inscription {inscription_index}"))?;
+
+    let entry = index
+      .get_inscription_entry(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let inscription = index
+      .get_inscription_by_id(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let satpoint = index
+      .get_inscription_satpoint_by_id(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let output = index
+      .get_transaction(satpoint.outpoint.txid)?
+      .ok_or_not_found(|| format!("inscription {inscription_id} current transaction"))?
+      .output
+      .into_iter()
+      .nth(satpoint.outpoint.vout.try_into().unwrap())
+      .ok_or_not_found(|| format!("inscription {inscription_id} current transaction output"))?;
+
+    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+      Some(
+        index
+          .get_inscription_id_by_inscription_number(previous)?
+          .ok_or_not_found(|| format!("inscription {previous}"))?,
+      )
     } else {
       None
     };
 
-    let output = if outpoint == OutPoint::null() {
-      let mut value = 0;
+    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
 
-      if let Some(List::Unspent(ranges)) = &list {
-        for (start, end) in ranges {
-          value += end - start;
-        }
-      }
+    Ok(Json(InscriptionAPI {
+      chain: (page_config.chain),
+      genesis_fee: (entry.fee),
+      genesis_height: (entry.height),
+      inscription: (inscription),
+      inscription_id: (inscription_id),
+      next: (next),
+      number: (entry.number),
+      output: (output),
+      previous: (previous),
+      sat: (entry.sat),
+      satpoint: (satpoint),
+      timestamp: (timestamp(entry.timestamp).to_string()),
+    }))
+  }
 
-      TxOut {
-        value,
-        script_pubkey: Script::new(),
-      }
-    } else {
-      index
-        .get_transaction(outpoint.txid)?
-        .ok_or_not_found(|| format!("output {outpoint}"))?
-        .output
-        .into_iter()
-        .nth(outpoint.vout as usize)
-        .ok_or_not_found(|| format!("output {outpoint}"))?
-    };
+  async fn inscriptions_from_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(from): Path<u64>,
+  ) -> ServerResult<Json<InscriptionsAPI>> {
+    Self::inscriptions_inner_api(page_config, index, Some(from)).await
+  }
 
-    let inscriptions = index.get_inscriptions_on_output(outpoint)?;
-
-    Ok(
-      OutputHtml {
-        outpoint,
-        inscriptions,
-        list,
-        chain: page_config.chain,
-        output,
-      }
-      .page(page_config, index.has_sat_index()?),
-    )
+  async fn inscriptions_inner_api(
+    page_config: Arc<PageConfig>,
+    index: Arc<Index>,
+    from: Option<u64>,
+  ) -> ServerResult<Json<InscriptionsAPI>> {
+    let (inscriptions, prev, next) = index.get_latest_inscriptions_with_prev_and_next(100, from)?;
+    Ok(Json(InscriptionsAPI {
+      inscriptions,
+      prev,
+      next,
+    }))
   }
 
   async fn range(
