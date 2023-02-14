@@ -1,9 +1,13 @@
+use axum::Json;
+
 use {
   self::{
     deserialize_from_str::DeserializeFromStr,
     error::{OptionExt, ServerError, ServerResult},
   },
   super::*,
+  crate::apis::InscriptionAPI,
+  crate::apis::SatAPI,
   crate::page_config::PageConfig,
   crate::templates::{
     BlockHtml, ClockSvg, HomeHtml, InputHtml, InscriptionHtml, InscriptionsHtml, OutputHtml,
@@ -168,6 +172,17 @@ impl Server {
         .route("/static/*path", get(Self::static_asset))
         .route("/status", get(Self::status))
         .route("/tx/:txid", get(Self::transaction))
+        .route("/api/sat/:sat", get(Self::sat_api))
+        .route(
+          "/api/inscription/:inscription_id",
+          get(Self::inscription_api),
+        )
+        .route("/api/output/:output", get(Self::output_api))
+        // .route(
+        //   "/api/inscription-index/:index",
+        //   get(Self::inscription_index_api),
+        // )
+        .route("/api/test", get(Self::test_api))
         .layer(Extension(index))
         .layer(Extension(page_config))
         .layer(Extension(Arc::new(config)))
@@ -386,11 +401,190 @@ impl Server {
     )
   }
 
+  async fn sat_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(DeserializeFromStr(sat)): Path<DeserializeFromStr<Sat>>,
+  ) -> ServerResult<Json<SatAPI>> {
+    let satpoint = index.rare_sat_satpoint(sat)?;
+    Ok(Json(SatAPI {
+      sat: (sat),
+      satpoint: (satpoint),
+      block: (index.blocktime(sat.height())?).timestamp().to_string(),
+      inscription: (index.get_inscription_id_by_sat(sat)?),
+    }))
+  }
+
+  async fn inscription_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(inscription_id): Path<InscriptionId>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    let entry = index
+      .get_inscription_entry(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let inscription = index
+      .get_inscription_by_id(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let satpoint = index
+      .get_inscription_satpoint_by_id(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let output = index
+      .get_transaction(satpoint.outpoint.txid)?
+      .ok_or_not_found(|| format!("inscription {inscription_id} current transaction"))?
+      .output
+      .into_iter()
+      .nth(satpoint.outpoint.vout.try_into().unwrap())
+      .ok_or_not_found(|| format!("inscription {inscription_id} current transaction output"))?;
+
+    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+      Some(
+        index
+          .get_inscription_id_by_inscription_number(previous)?
+          .ok_or_not_found(|| format!("inscription {previous}"))?,
+      )
+    } else {
+      None
+    };
+
+    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+
+    Ok(Json(InscriptionAPI {
+      chain: (page_config.chain),
+      genesis_fee: (entry.fee),
+      genesis_height: (entry.height),
+      inscription: (inscription),
+      inscription_id: (inscription_id),
+      next: (next),
+      number: (entry.number),
+      output: (output),
+      previous: (previous),
+      sat: (entry.sat),
+      satpoint: (satpoint),
+      timestamp: (timestamp(entry.timestamp).to_string()),
+    }))
+  }
+
+  async fn test_api(
+    // Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(DeserializeFromStr(sat)): Path<DeserializeFromStr<Sat>>,
+  ) -> ServerResult<Json<SatAPI>> {
+    let satpoint = index.rare_sat_satpoint(sat)?;
+
+    (index.blocktime(sat.height())?).to_owned();
+    Ok(Json(SatAPI {
+      sat: (sat),
+      satpoint: (satpoint),
+      block: "sdf".to_string(),
+      inscription: (index.get_inscription_id_by_sat(sat)?),
+    }))
+  }
+
   async fn ordinal(Path(sat): Path<String>) -> Redirect {
     Redirect::to(&format!("/sat/{sat}"))
   }
 
   async fn output(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(outpoint): Path<OutPoint>,
+  ) -> ServerResult<PageHtml<OutputHtml>> {
+    let list = if index.has_sat_index()? {
+      index.list(outpoint)?
+    } else {
+      None
+    };
+
+    let output = if outpoint == OutPoint::null() {
+      let mut value = 0;
+
+      if let Some(List::Unspent(ranges)) = &list {
+        for (start, end) in ranges {
+          value += end - start;
+        }
+      }
+
+      TxOut {
+        value,
+        script_pubkey: Script::new(),
+      }
+    } else {
+      index
+        .get_transaction(outpoint.txid)?
+        .ok_or_not_found(|| format!("output {outpoint}"))?
+        .output
+        .into_iter()
+        .nth(outpoint.vout as usize)
+        .ok_or_not_found(|| format!("output {outpoint}"))?
+    };
+
+    let inscriptions = index.get_inscriptions_on_output(outpoint)?;
+
+    Ok(
+      OutputHtml {
+        outpoint,
+        inscriptions,
+        list,
+        chain: page_config.chain,
+        output,
+      }
+      .page(page_config, index.has_sat_index()?),
+    )
+  }
+
+  async fn output_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(outpoint): Path<OutPoint>,
+  ) -> ServerResult<PageHtml<OutputHtml>> {
+    let list = if index.has_sat_index()? {
+      index.list(outpoint)?
+    } else {
+      None
+    };
+
+    let output = if outpoint == OutPoint::null() {
+      let mut value = 0;
+
+      if let Some(List::Unspent(ranges)) = &list {
+        for (start, end) in ranges {
+          value += end - start;
+        }
+      }
+
+      TxOut {
+        value,
+        script_pubkey: Script::new(),
+      }
+    } else {
+      index
+        .get_transaction(outpoint.txid)?
+        .ok_or_not_found(|| format!("output {outpoint}"))?
+        .output
+        .into_iter()
+        .nth(outpoint.vout as usize)
+        .ok_or_not_found(|| format!("output {outpoint}"))?
+    };
+
+    let inscriptions = index.get_inscriptions_on_output(outpoint)?;
+
+    Ok(
+      OutputHtml {
+        outpoint,
+        inscriptions,
+        list,
+        chain: page_config.chain,
+        output,
+      }
+      .page(page_config, index.has_sat_index()?),
+    )
+  }
+
+  async fn inscription_index_api(
     Extension(page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
     Path(outpoint): Path<OutPoint>,
