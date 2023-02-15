@@ -405,7 +405,7 @@ impl Server {
   }
 
   async fn sat_api(
-    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(_page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
     Path(DeserializeFromStr(sat)): Path<DeserializeFromStr<Sat>>,
   ) -> ServerResult<Json<SatAPI>> {
@@ -478,11 +478,10 @@ impl Server {
   ) -> ServerResult<Json<SatAPI>> {
     let satpoint = index.rare_sat_satpoint(sat)?;
 
-    (index.blocktime(sat.height())?).to_owned();
     Ok(Json(SatAPI {
       sat: (sat),
       satpoint: (satpoint),
-      block: "sdf".to_string(),
+      block: (index.blocktime(sat.height())?).timestamp().to_string(),
       inscription: (index.get_inscription_id_by_sat(sat)?),
     }))
   }
@@ -650,7 +649,7 @@ impl Server {
   }
 
   async fn inscriptions_inner_api(
-    page_config: Arc<PageConfig>,
+    _page_config: Arc<PageConfig>,
     index: Arc<Index>,
     from: Option<u64>,
   ) -> ServerResult<Json<InscriptionsAPI>> {
