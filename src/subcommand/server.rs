@@ -186,7 +186,7 @@ impl Server {
         )
         .route("/api/inscriptions/:from", get(Self::inscriptions_from_api))
         .route("/api/inscriptions", get(Self::inscriptions_from_latest))
-        .route("/api/test", get(Self::test_api))
+        .route("/api/search", get(Self::search_inscription_api))
         .layer(Extension(index))
         .layer(Extension(page_config))
         .layer(Extension(Arc::new(config)))
@@ -472,21 +472,6 @@ impl Server {
     }))
   }
 
-  async fn test_api(
-    // Extension(page_config): Extension<Arc<PageConfig>>,
-    Extension(index): Extension<Arc<Index>>,
-    Path(DeserializeFromStr(sat)): Path<DeserializeFromStr<Sat>>,
-  ) -> ServerResult<Json<SatAPI>> {
-    let satpoint = index.rare_sat_satpoint(sat)?;
-
-    Ok(Json(SatAPI {
-      sat: (sat),
-      satpoint: (satpoint),
-      block: (index.blocktime(sat.height())?).timestamp().to_string(),
-      inscription: (index.get_inscription_id_by_sat(sat)?),
-    }))
-  }
-
   async fn ordinal(Path(sat): Path<String>) -> Redirect {
     Redirect::to(&format!("/sat/{sat}"))
   }
@@ -667,6 +652,146 @@ impl Server {
     Extension(index): Extension<Arc<Index>>,
   ) -> ServerResult<Json<InscriptionsAPI>> {
     Self::inscriptions_inner_api(page_config, index, None).await
+  }
+
+  async fn search_inscription_api(
+    Extension(index): Extension<Arc<Index>>,
+    Query(search): Query<Search>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    Self::search_inscription_api_inner(&index, &search.query).await
+  }
+
+  async fn search_inscription_api_inner(
+    index: &Index,
+    query: &str,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    lazy_static! {
+      static ref INSCRIPTION_INDEX: Regex = Regex::new(r"^[[:xdigit:]]{64}i\d+$").unwrap();
+      static ref INSCRIPTION_ID: Regex = Regex::new(r"^[[:xdigit:]]{64}i\d+$").unwrap();
+    }
+
+    let query = query.trim();
+    // let mut insc_id: inscription_id::InscriptionId;
+
+    if INSCRIPTION_ID.is_match(query) {
+      let a = inscription_id::InscriptionId::from_str(query);
+      let insc_id = a.unwrap();
+      let entry = index
+        .get_inscription_entry(insc_id)?
+        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+      let inscription = index
+        .get_inscription_by_id(insc_id)?
+        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+      let satpoint = index
+        .get_inscription_satpoint_by_id(insc_id)?
+        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+      let output = index
+        .get_transaction(satpoint.outpoint.txid)?
+        .ok_or_not_found(|| format!("inscription {insc_id} current transaction"))?
+        .output
+        .into_iter()
+        .nth(satpoint.outpoint.vout.try_into().unwrap())
+        .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
+
+      let previous = if let Some(previous) = entry.number.checked_sub(1) {
+        Some(
+          index
+            .get_inscription_id_by_inscription_number(previous)?
+            .ok_or_not_found(|| format!("inscription {previous}"))?,
+        )
+      } else {
+        None
+      };
+
+      let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+
+      (Json(InscriptionAPI {
+        // chain: (page_config.chain),
+        // genesis_fee: (entry.fee),
+        genesis_height: (entry.height),
+        inscription: (inscription),
+        inscription_id: (insc_id),
+        next: (next),
+        number: (entry.number),
+        output: (output),
+        previous: (previous),
+        sat: (entry.sat),
+        satpoint: (satpoint),
+        timestamp: (timestamp(entry.timestamp).to_string()),
+      }));
+    } else if query.parse::<u64>().is_ok() {
+      let inscription_index = query.parse::<u64>();
+      let inscription_index = inscription_index.unwrap();
+      let insc_id = index
+        .get_inscription_id_by_inscription_number(inscription_index)?
+        .ok_or_not_found(|| format!("inscription {inscription_index}"))?;
+
+      let entry = index
+        .get_inscription_entry(insc_id)?
+        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+      let inscription = index
+        .get_inscription_by_id(insc_id)?
+        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+      let satpoint = index
+        .get_inscription_satpoint_by_id(insc_id)?
+        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+      let output = index
+        .get_transaction(satpoint.outpoint.txid)?
+        .ok_or_not_found(|| format!("inscription {insc_id} current transaction"))?
+        .output
+        .into_iter()
+        .nth(satpoint.outpoint.vout.try_into().unwrap())
+        .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
+
+      let previous = if let Some(previous) = entry.number.checked_sub(1) {
+        Some(
+          index
+            .get_inscription_id_by_inscription_number(previous)?
+            .ok_or_not_found(|| format!("inscription {previous}"))?,
+        )
+      } else {
+        None
+      };
+
+      let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+
+      (Json(InscriptionAPI {
+        // chain: (page_config.chain),
+        // genesis_fee: (entry.fee),
+        genesis_height: (entry.height),
+        inscription: (inscription),
+        inscription_id: (insc_id),
+        next: (next),
+        number: (entry.number),
+        output: (output),
+        previous: (previous),
+        sat: (entry.sat),
+        satpoint: (satpoint),
+        timestamp: (timestamp(entry.timestamp).to_string()),
+      }));
+    }
+
+    // if HASH.is_match(query) {
+    //   if index.block_header(query.parse().unwrap())?.is_some() {
+    //     Ok(Redirect::to(&format!("/block/{query}")))
+    //   } else {
+    //     Ok(Redirect::to(&format!("/tx/{query}")))
+    //   }
+    // } else if OUTPOINT.is_match(query) {
+    //   Ok(Redirect::to(&format!("/output/{query}")))
+    // } else if INSCRIPTION_ID.is_match(query) {
+    //   Ok(Redirect::to(&format!("/inscription/{query}")))
+    // } else {
+    //   Ok(Redirect::to(&format!("/sat/{query}")))
+    // }
+
+    Err(ServerError::NotFound("id or number not found".to_string()))
   }
 
   async fn range(
