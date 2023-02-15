@@ -676,122 +676,122 @@ impl Server {
     if INSCRIPTION_ID.is_match(query) {
       let a = inscription_id::InscriptionId::from_str(query);
       let insc_id = a.unwrap();
-      let entry = index
-        .get_inscription_entry(insc_id)?
-        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
-
-      let inscription = index
-        .get_inscription_by_id(insc_id)?
-        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
-
-      let satpoint = index
-        .get_inscription_satpoint_by_id(insc_id)?
-        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
-
-      let output = index
-        .get_transaction(satpoint.outpoint.txid)?
-        .ok_or_not_found(|| format!("inscription {insc_id} current transaction"))?
-        .output
-        .into_iter()
-        .nth(satpoint.outpoint.vout.try_into().unwrap())
-        .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
-
-      let previous = if let Some(previous) = entry.number.checked_sub(1) {
-        Some(
-          index
-            .get_inscription_id_by_inscription_number(previous)?
-            .ok_or_not_found(|| format!("inscription {previous}"))?,
-        )
-      } else {
-        None
-      };
-
-      let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
-
-      (Json(InscriptionAPI {
-        // chain: (page_config.chain),
-        // genesis_fee: (entry.fee),
-        genesis_height: (entry.height),
-        inscription: (inscription),
-        inscription_id: (insc_id),
-        next: (next),
-        number: (entry.number),
-        output: (output),
-        previous: (previous),
-        sat: (entry.sat),
-        satpoint: (satpoint),
-        timestamp: (timestamp(entry.timestamp).to_string()),
-      }));
+      Self::search_by_id(&index, insc_id).await
     } else if query.parse::<u64>().is_ok() {
       let inscription_index = query.parse::<u64>();
       let inscription_index = inscription_index.unwrap();
-      let insc_id = index
-        .get_inscription_id_by_inscription_number(inscription_index)?
-        .ok_or_not_found(|| format!("inscription {inscription_index}"))?;
-
-      let entry = index
-        .get_inscription_entry(insc_id)?
-        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
-
-      let inscription = index
-        .get_inscription_by_id(insc_id)?
-        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
-
-      let satpoint = index
-        .get_inscription_satpoint_by_id(insc_id)?
-        .ok_or_not_found(|| format!("inscription {insc_id}"))?;
-
-      let output = index
-        .get_transaction(satpoint.outpoint.txid)?
-        .ok_or_not_found(|| format!("inscription {insc_id} current transaction"))?
-        .output
-        .into_iter()
-        .nth(satpoint.outpoint.vout.try_into().unwrap())
-        .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
-
-      let previous = if let Some(previous) = entry.number.checked_sub(1) {
-        Some(
-          index
-            .get_inscription_id_by_inscription_number(previous)?
-            .ok_or_not_found(|| format!("inscription {previous}"))?,
-        )
-      } else {
-        None
-      };
-
-      let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
-
-      (Json(InscriptionAPI {
-        // chain: (page_config.chain),
-        // genesis_fee: (entry.fee),
-        genesis_height: (entry.height),
-        inscription: (inscription),
-        inscription_id: (insc_id),
-        next: (next),
-        number: (entry.number),
-        output: (output),
-        previous: (previous),
-        sat: (entry.sat),
-        satpoint: (satpoint),
-        timestamp: (timestamp(entry.timestamp).to_string()),
-      }));
+      Self::search_by_index(&index, inscription_index).await
+    } else {
+      Err(ServerError::NotFound("id or number not found".to_string()))
     }
+  }
 
-    // if HASH.is_match(query) {
-    //   if index.block_header(query.parse().unwrap())?.is_some() {
-    //     Ok(Redirect::to(&format!("/block/{query}")))
-    //   } else {
-    //     Ok(Redirect::to(&format!("/tx/{query}")))
-    //   }
-    // } else if OUTPOINT.is_match(query) {
-    //   Ok(Redirect::to(&format!("/output/{query}")))
-    // } else if INSCRIPTION_ID.is_match(query) {
-    //   Ok(Redirect::to(&format!("/inscription/{query}")))
-    // } else {
-    //   Ok(Redirect::to(&format!("/sat/{query}")))
-    // }
+  async fn search_by_id(
+    index: &Index,
+    insc_id: InscriptionId,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    let entry = index
+      .get_inscription_entry(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
 
-    Err(ServerError::NotFound("id or number not found".to_string()))
+    let inscription = index
+      .get_inscription_by_id(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let satpoint = index
+      .get_inscription_satpoint_by_id(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let output = index
+      .get_transaction(satpoint.outpoint.txid)?
+      .ok_or_not_found(|| format!("inscription {insc_id} current transaction"))?
+      .output
+      .into_iter()
+      .nth(satpoint.outpoint.vout.try_into().unwrap())
+      .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
+
+    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+      Some(
+        index
+          .get_inscription_id_by_inscription_number(previous)?
+          .ok_or_not_found(|| format!("inscription {previous}"))?,
+      )
+    } else {
+      None
+    };
+
+    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+
+    Ok(Json(InscriptionAPI {
+      // chain: (page_config.chain),
+      // genesis_fee: (entry.fee),
+      genesis_height: (entry.height),
+      inscription: (inscription),
+      inscription_id: (insc_id),
+      next: (next),
+      number: (entry.number),
+      output: (output),
+      previous: (previous),
+      sat: (entry.sat),
+      satpoint: (satpoint),
+      timestamp: (timestamp(entry.timestamp).to_string()),
+    }))
+  }
+
+  async fn search_by_index(
+    index: &Index,
+    inscription_index: u64,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    let insc_id = index
+      .get_inscription_id_by_inscription_number(inscription_index)?
+      .ok_or_not_found(|| format!("inscription {inscription_index}"))?;
+
+    let entry = index
+      .get_inscription_entry(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let inscription = index
+      .get_inscription_by_id(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let satpoint = index
+      .get_inscription_satpoint_by_id(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let output = index
+      .get_transaction(satpoint.outpoint.txid)?
+      .ok_or_not_found(|| format!("inscription {insc_id} current transaction"))?
+      .output
+      .into_iter()
+      .nth(satpoint.outpoint.vout.try_into().unwrap())
+      .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
+
+    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+      Some(
+        index
+          .get_inscription_id_by_inscription_number(previous)?
+          .ok_or_not_found(|| format!("inscription {previous}"))?,
+      )
+    } else {
+      None
+    };
+
+    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+
+    Ok(Json(InscriptionAPI {
+      // chain: (page_config.chain),
+      // genesis_fee: (entry.fee),
+      genesis_height: (entry.height),
+      inscription: (inscription),
+      inscription_id: (insc_id),
+      next: (next),
+      number: (entry.number),
+      output: (output),
+      previous: (previous),
+      sat: (entry.sat),
+      satpoint: (satpoint),
+      timestamp: (timestamp(entry.timestamp).to_string()),
+    }))
   }
 
   async fn range(
