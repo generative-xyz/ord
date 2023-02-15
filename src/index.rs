@@ -135,12 +135,24 @@ impl Index {
     let rpc_url = options.rpc_url();
     let cookie_file = options.cookie_file()?;
 
-    log::info!(
-      "Connecting to Bitcoin Core RPC server at {rpc_url} using credentials from `{}`",
-      cookie_file.display()
-    );
+    let mut auth = Auth::UserPass("".to_string(), "".to_string());
+    _ = auth;
+    if env::var("BTC_RPC_USER").is_ok() {
+      let btc_rpc_user = env::var("BTC_RPC_USER")?;
+      let btc_rpc_pass = env::var("BTC_RPC_PASS")?;
 
-    let auth = Auth::CookieFile(cookie_file);
+      auth = Auth::UserPass(btc_rpc_user.clone(), btc_rpc_pass.clone());
+      log::info!(
+        "Connecting to Bitcoin Core RPC server at {rpc_url} using credentials from `{}`",
+        btc_rpc_user
+      );
+    } else {
+      auth = Auth::CookieFile(cookie_file.clone());
+      log::info!(
+        "Connecting to Bitcoin Core RPC server at {rpc_url} using credentials from `{}`",
+        cookie_file.display()
+      );
+    }
 
     let client = Client::new(&rpc_url, auth.clone()).context("failed to connect to RPC URL")?;
 
