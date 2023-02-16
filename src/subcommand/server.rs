@@ -655,13 +655,15 @@ impl Server {
   }
 
   async fn search_inscription_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
     Query(search): Query<Search>,
   ) -> ServerResult<Json<InscriptionAPI>> {
-    Self::search_inscription_api_inner(&index, &search.query).await
+    Self::search_inscription_api_inner(axum::Extension(page_config), &index, &search.query).await
   }
 
   async fn search_inscription_api_inner(
+    Extension(page_config): Extension<Arc<PageConfig>>,
     index: &Index,
     query: &str,
   ) -> ServerResult<Json<InscriptionAPI>> {
@@ -676,17 +678,18 @@ impl Server {
     if INSCRIPTION_ID.is_match(query) {
       let a = inscription_id::InscriptionId::from_str(query);
       let insc_id = a.unwrap();
-      Self::search_by_id(&index, insc_id).await
+      Self::search_by_id(page_config, &index, insc_id).await
     } else if query.parse::<u64>().is_ok() {
       let inscription_index = query.parse::<u64>();
       let inscription_index = inscription_index.unwrap();
-      Self::search_by_index(&index, inscription_index).await
+      Self::search_by_index(page_config, &index, inscription_index).await
     } else {
       Err(ServerError::NotFound("id or number not found".to_string()))
     }
   }
 
   async fn search_by_id(
+    page_config: Arc<PageConfig>,
     index: &Index,
     insc_id: InscriptionId,
   ) -> ServerResult<Json<InscriptionAPI>> {
@@ -723,8 +726,8 @@ impl Server {
     let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
 
     Ok(Json(InscriptionAPI {
-      // chain: (page_config.chain),
-      // genesis_fee: (entry.fee),
+      chain: (page_config.chain),
+      genesis_fee: (entry.fee),
       genesis_height: (entry.height),
       inscription: (inscription),
       inscription_id: (insc_id),
@@ -739,6 +742,7 @@ impl Server {
   }
 
   async fn search_by_index(
+    page_config: Arc<PageConfig>,
     index: &Index,
     inscription_index: u64,
   ) -> ServerResult<Json<InscriptionAPI>> {
@@ -779,8 +783,8 @@ impl Server {
     let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
 
     Ok(Json(InscriptionAPI {
-      // chain: (page_config.chain),
-      // genesis_fee: (entry.fee),
+      chain: (page_config.chain),
+      genesis_fee: (entry.fee),
       genesis_height: (entry.height),
       inscription: (inscription),
       inscription_id: (insc_id),
