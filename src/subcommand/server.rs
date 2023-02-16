@@ -456,11 +456,12 @@ impl Server {
 
     let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
 
+    let content_type = inscription.content_type().unwrap();
     Ok(Json(InscriptionAPI {
       chain: (page_config.chain),
       genesis_fee: (entry.fee),
       genesis_height: (entry.height),
-      inscription: (inscription),
+      content_type: Some(content_type.to_string()),
       inscription_id: (inscription_id),
       next: (next),
       number: (entry.number),
@@ -610,11 +611,12 @@ impl Server {
 
     let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
 
+    let content_type = inscription.content_type().unwrap();
     Ok(Json(InscriptionAPI {
       chain: (page_config.chain),
       genesis_fee: (entry.fee),
       genesis_height: (entry.height),
-      inscription: (inscription),
+      content_type: Some(content_type.to_string()),
       inscription_id: (inscription_id),
       next: (next),
       number: (entry.number),
@@ -725,11 +727,12 @@ impl Server {
 
     let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
 
+    let content_type = inscription.content_type().unwrap();
     Ok(Json(InscriptionAPI {
       chain: (page_config.chain),
       genesis_fee: (entry.fee),
       genesis_height: (entry.height),
-      inscription: (inscription),
+      content_type: Some(content_type.to_string()),
       inscription_id: (insc_id),
       next: (next),
       number: (entry.number),
@@ -782,11 +785,12 @@ impl Server {
 
     let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
 
+    let content_type = inscription.content_type().unwrap();
     Ok(Json(InscriptionAPI {
       chain: (page_config.chain),
       genesis_fee: (entry.fee),
       genesis_height: (entry.height),
-      inscription: (inscription),
+      content_type: Some(content_type.to_string()),
       inscription_id: (insc_id),
       next: (next),
       number: (entry.number),
