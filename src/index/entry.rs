@@ -143,3 +143,58 @@ impl Entry for SatRange {
     n.to_le_bytes()[0..11].try_into().unwrap()
   }
 }
+
+pub(super) type InscriptionEventValue = [u8; 40];
+
+fn convert_array(array: &[u8]) -> [u8; 36] {
+  array.try_into().expect("slice with incorrect length")
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct InscriptionEventEntry {
+  pub(crate) event: u32,
+  pub(crate) inscription_id: InscriptionId,
+}
+
+impl Entry for InscriptionEventEntry {
+  type Value = InscriptionEventValue;
+
+  fn load(value: Self::Value) -> Self {
+    let (txid, event) = value.split_at(36);
+    Self {
+      event: u32::from_be_bytes(event.try_into().unwrap()),
+      inscription_id: InscriptionId::load(convert_array(txid)),
+    }
+  }
+
+  fn store(self) -> Self::Value {
+    let mut value = [0; 40];
+    let (txid, index) = value.split_at_mut(32);
+    txid.copy_from_slice(&self.inscription_id.store());
+    index.copy_from_slice(&self.event.to_be_bytes());
+    value
+  }
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct BlockEventEntry {
+  pub(crate) events: Vec<InscriptionEventEntry>,
+}
+
+pub(super) type BlockEventValue = &'static str;
+
+impl Entry for BlockEventEntry {
+  type Value = BlockEventValue;
+
+  fn load(value: Self::Value) -> Self {
+    let new_s = value.clone();
+    let events: BlockEventEntry = serde_json::from_str(new_s).unwrap();
+    events
+  }
+
+  fn store(self) -> Self::Value {
+    let json_str = serde_json::to_string(&self).unwrap();
+    let my_static_str: &'static str = Box::leak(json_str.into_boxed_str());
+    my_static_str
+  }
+}

@@ -243,6 +243,7 @@ impl Updater {
     }
   }
 
+  //TODO: lam edit this add event index
   fn index_block(
     &mut self,
     index: &Index,
@@ -255,6 +256,8 @@ impl Updater {
     let start = Instant::now();
     let mut sat_ranges_written = 0;
     let mut outputs_in_block = 0;
+    let mut inscription_events = Vec::<entry::InscriptionEventEntry>::new();
+    let mut _block_inscription_events = wtx.open_table(OUTPOINT_TO_SAT_RANGES)?;
 
     let time = timestamp(block.header.time);
 
@@ -283,6 +286,7 @@ impl Updater {
     let mut sat_to_inscription_id = wtx.open_table(SAT_TO_INSCRIPTION_ID)?;
     let mut satpoint_to_inscription_id = wtx.open_table(SATPOINT_TO_INSCRIPTION_ID)?;
     let mut statistic_to_count = wtx.open_table(STATISTIC_TO_COUNT)?;
+    let mut block_to_events = wtx.open_table(BLOCK_INSCRIPTION_EVENT)?;
 
     let mut lost_sats = statistic_to_count
       .get(&Statistic::LostSats.key())?
@@ -301,6 +305,7 @@ impl Updater {
       &mut satpoint_to_inscription_id,
       block.header.time,
       value_cache,
+      &mut block_to_events,
     )?;
 
     if self.index_sats {
@@ -349,6 +354,7 @@ impl Updater {
           &mut sat_ranges_written,
           &mut outputs_in_block,
           &mut inscription_updater,
+          &mut inscription_events,
         )?;
 
         coinbase_inputs.extend(input_sat_ranges);
@@ -363,6 +369,7 @@ impl Updater {
           &mut sat_ranges_written,
           &mut outputs_in_block,
           &mut inscription_updater,
+          &mut inscription_events,
         )?;
       }
 
@@ -393,9 +400,21 @@ impl Updater {
       }
     } else {
       for (tx, txid) in block.txdata.iter().skip(1).chain(block.txdata.first()) {
-        lost_sats += inscription_updater.index_transaction_inscriptions(tx, *txid, None)?;
+        lost_sats += inscription_updater.index_transaction_inscriptions(
+          tx,
+          *txid,
+          None,
+          &mut inscription_events,
+        )?;
       }
     }
+
+    //TODO: lam store inscription_events
+    let block_events = BlockEventEntry {
+      events: inscription_events,
+    };
+
+    block_to_events.insert(self.height, &block_events.store())?;
 
     statistic_to_count.insert(&Statistic::LostSats.key(), &lost_sats)?;
 
@@ -421,8 +440,14 @@ impl Updater {
     sat_ranges_written: &mut u64,
     outputs_traversed: &mut u64,
     inscription_updater: &mut InscriptionUpdater,
+    inscription_events: &mut Vec<entry::InscriptionEventEntry>,
   ) -> Result {
-    inscription_updater.index_transaction_inscriptions(tx, txid, Some(input_sat_ranges))?;
+    inscription_updater.index_transaction_inscriptions(
+      tx,
+      txid,
+      Some(input_sat_ranges),
+      inscription_events,
+    )?;
 
     for (vout, output) in tx.output.iter().enumerate() {
       let outpoint = OutPoint {

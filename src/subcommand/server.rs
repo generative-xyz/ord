@@ -6,6 +6,7 @@ use {
     error::{OptionExt, ServerError, ServerResult},
   },
   super::*,
+  crate::apis::BlockEventAPI,
   crate::apis::InscriptionAPI,
   crate::apis::InscriptionsAPI,
   crate::apis::OutputAPI,
@@ -187,6 +188,7 @@ impl Server {
         .route("/api/inscriptions/:from", get(Self::inscriptions_from_api))
         .route("/api/inscriptions", get(Self::inscriptions_from_latest))
         .route("/api/search", get(Self::search_inscription_api))
+        .route("/api/events", get(Self::get_inscriptions_events_by_block))
         .layer(Extension(index))
         .layer(Extension(page_config))
         .layer(Extension(Arc::new(config)))
@@ -799,6 +801,26 @@ impl Server {
       sat: (entry.sat),
       satpoint: (satpoint),
       timestamp: (timestamp(entry.timestamp).to_string()),
+    }))
+  }
+
+  //TODO: lam write api for this
+  async fn get_inscriptions_events_by_block(
+    Extension(_page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Query(search): Query<Search>,
+  ) -> ServerResult<Json<BlockEventAPI>> {
+    let query = search.query.trim();
+    let block_height = query.parse::<u64>().unwrap();
+    let events = index
+      .get_block_inscription_event(block_height)?
+      .ok_or_not_found(|| format!("events at block {query}"))?;
+    // Self::search_inscription_api_inner(axum::Extension(page_config), &index, &search.query).await
+    let inscription_events = Vec::<InscriptionEvent>::new();
+    _ = events; //TODO: for range this
+    Ok(Json(BlockEventAPI {
+      height: block_height,
+      events: inscription_events,
     }))
   }
 

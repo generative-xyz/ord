@@ -26,6 +26,7 @@ pub(super) struct InscriptionUpdater<'a, 'db, 'tx> {
   satpoint_to_id: &'a mut Table<'db, 'tx, &'static SatPointValue, &'static InscriptionIdValue>,
   timestamp: u32,
   value_cache: &'a mut HashMap<OutPoint, u64>,
+  block_to_inscription_events: &'a mut Table<'db, 'tx, u64, BlockEventValue>,
 }
 
 impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
@@ -41,6 +42,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
     satpoint_to_id: &'a mut Table<'db, 'tx, &'static SatPointValue, &'static InscriptionIdValue>,
     timestamp: u32,
     value_cache: &'a mut HashMap<OutPoint, u64>,
+    block_to_inscription_events: &'a mut Table<'db, 'tx, u64, BlockEventValue>,
   ) -> Result<Self> {
     let next_number = number_to_id
       .iter()?
@@ -64,17 +66,19 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
       satpoint_to_id,
       timestamp,
       value_cache,
+      block_to_inscription_events,
     })
   }
-
+  //TODO: lam main inscription indexer
   pub(super) fn index_transaction_inscriptions(
     &mut self,
     tx: &Transaction,
     txid: Txid,
     input_sat_ranges: Option<&VecDeque<(u64, u64)>>,
+    inscription_events: &mut Vec<entry::InscriptionEventEntry>,
   ) -> Result<u64> {
     let mut inscriptions = Vec::new();
-
+    _ = self.block_to_inscription_events; //TODO: remove this
     let mut input_value = 0;
     for tx_in in &tx.input {
       if tx_in.previous_output.is_null() {
@@ -116,6 +120,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
     if inscriptions.iter().all(|flotsam| flotsam.offset != 0)
       && Inscription::from_transaction(tx).is_some()
     {
+      //TODO: inscribe tx event
       inscriptions.push(Flotsam {
         inscription_id: txid.into(),
         offset: 0,
@@ -157,6 +162,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
           input_sat_ranges,
           inscriptions.next().unwrap(),
           new_satpoint,
+          inscription_events,
         )?;
       }
 
@@ -177,7 +183,12 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
           outpoint: OutPoint::null(),
           offset: self.lost_sats + flotsam.offset - output_value,
         };
-        self.update_inscription_location(input_sat_ranges, flotsam, new_satpoint)?;
+        self.update_inscription_location(
+          input_sat_ranges,
+          flotsam,
+          new_satpoint,
+          inscription_events,
+        )?;
       }
 
       Ok(self.reward - output_value)
@@ -196,18 +207,28 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
     input_sat_ranges: Option<&VecDeque<(u64, u64)>>,
     flotsam: Flotsam,
     new_satpoint: SatPoint,
+    inscription_events: &mut Vec<entry::InscriptionEventEntry>,
   ) -> Result {
     let inscription_id = flotsam.inscription_id.store();
 
     match flotsam.origin {
       Origin::Old(old_satpoint) => {
         self.satpoint_to_id.remove(&old_satpoint.store())?;
+        let event = entry::InscriptionEventEntry {
+          event: 1,
+          inscription_id: flotsam.inscription_id,
+        };
+        inscription_events.push(event)
       }
       Origin::New(fee) => {
         self
           .number_to_id
           .insert(&self.next_number, &inscription_id)?;
-
+        let event = entry::InscriptionEventEntry {
+          event: 0,
+          inscription_id: flotsam.inscription_id,
+        };
+        inscription_events.push(event);
         let mut sat = None;
         if let Some(input_sat_ranges) = input_sat_ranges {
           let mut offset = 0;
@@ -222,7 +243,6 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
             offset += size;
           }
         }
-
         self.id_to_entry.insert(
           &inscription_id,
           &InscriptionEntry {
@@ -246,4 +266,13 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
 
     Ok(())
   }
+
+  // fn insert_inscription_event_location(
+  //   &mut self,
+  //   input_sat_ranges: Option<&VecDeque<(u64, u64)>>,
+  //   flotsam: Flotsam,
+  //   new_satpoint: SatPoint,
+  // ) -> Result {
+  //   Ok(())
+  // }
 }

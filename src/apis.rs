@@ -1,10 +1,11 @@
 use super::*;
 
 pub(crate) use {
-  inscription_api::InscriptionAPI, inscriptions_api::InscriptionsAPI, output_api::OutputAPI,
-  sat_api::SatAPI,
+  block_event_api::BlockEventAPI, inscription_api::InscriptionAPI,
+  inscriptions_api::InscriptionsAPI, output_api::OutputAPI, sat_api::SatAPI,
 };
 
+mod block_event_api;
 mod inscription_api;
 mod inscriptions_api;
 mod output_api;

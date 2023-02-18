@@ -1,8 +1,8 @@
 use {
   self::{
     entry::{
-      BlockHashValue, Entry, InscriptionEntry, InscriptionEntryValue, InscriptionIdValue,
-      OutPointValue, SatPointValue, SatRange,
+      BlockEventEntry, BlockEventValue, BlockHashValue, Entry, InscriptionEntry,
+      InscriptionEntryValue, InscriptionIdValue, OutPointValue, SatPointValue, SatRange,
     },
     updater::Updater,
   },
@@ -41,6 +41,7 @@ define_table! { SAT_TO_INSCRIPTION_ID, u64, &InscriptionIdValue }
 define_table! { SAT_TO_SATPOINT, u64, &SatPointValue }
 define_table! { STATISTIC_TO_COUNT, u64, u64 }
 define_table! { WRITE_TRANSACTION_STARTING_BLOCK_COUNT_TO_TIMESTAMP, u64, u128 }
+define_table! { BLOCK_INSCRIPTION_EVENT, u64, BlockEventValue}
 
 pub(crate) struct Index {
   auth: Auth,
@@ -225,6 +226,8 @@ impl Index {
 
         tx.open_table(STATISTIC_TO_COUNT)?
           .insert(&Statistic::Schema.key(), &SCHEMA_VERSION)?;
+
+        tx.open_table(BLOCK_INSCRIPTION_EVENT)?;
 
         if options.index_sats {
           tx.open_table(OUTPOINT_TO_SAT_RANGES)?
@@ -817,6 +820,27 @@ impl Index {
         .open_table(INSCRIPTION_ID_TO_INSCRIPTION_ENTRY)?
         .get(&inscription_id.store())?
         .map(|value| InscriptionEntry::load(value.value())),
+    )
+  }
+
+  pub(crate) fn get_block_inscription_event(
+    &self,
+    block_height: u64,
+  ) -> Result<Option<BlockEventEntry>> {
+    // let mut r2 = "".to_string();
+    Ok(
+      self
+        .database
+        .begin_read()?
+        .open_table(BLOCK_INSCRIPTION_EVENT)?
+        .get(&block_height)?
+        .map(|value| {
+          BlockEventEntry::load({
+            let r2 = value.value().to_string().into_boxed_str();
+            let r2_static = Box::leak(r2);
+            r2_static
+          })
+        }),
     )
   }
 
