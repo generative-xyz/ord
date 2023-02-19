@@ -1,9 +1,9 @@
 use {super::*, serde::Serialize};
 
-#[derive(Debug, PartialEq, Copy, Clone, Hash, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Clone, Hash, Eq, Deserialize, Serialize)]
 
 pub struct InscriptionEvent {
-  pub(crate) event: u32,
+  pub(crate) event: String,
   pub(crate) inscription_id: InscriptionId,
 }
 

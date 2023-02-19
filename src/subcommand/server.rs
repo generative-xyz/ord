@@ -816,8 +816,20 @@ impl Server {
       .get_block_inscription_event(block_height)?
       .ok_or_not_found(|| format!("events at block {query}"))?;
     // Self::search_inscription_api_inner(axum::Extension(page_config), &index, &search.query).await
-    let inscription_events = Vec::<InscriptionEvent>::new();
-    _ = events; //TODO: for range this
+    let mut inscription_events = Vec::<InscriptionEvent>::new();
+
+    for event in events.events.iter() {
+      let inscription_event = InscriptionEvent {
+        event: match event.event {
+          0 => "inscribe".to_string(),
+          1 => "transfer".to_string(),
+          _ => "unknown".to_string(),
+        },
+        inscription_id: event.inscription_id,
+      };
+      inscription_events.push(inscription_event)
+    }
+
     Ok(Json(BlockEventAPI {
       height: block_height,
       events: inscription_events,
