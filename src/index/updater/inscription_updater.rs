@@ -26,7 +26,6 @@ pub(super) struct InscriptionUpdater<'a, 'db, 'tx> {
   satpoint_to_id: &'a mut Table<'db, 'tx, &'static SatPointValue, &'static InscriptionIdValue>,
   timestamp: u32,
   value_cache: &'a mut HashMap<OutPoint, u64>,
-  block_to_inscription_events: &'a mut Table<'db, 'tx, u64, BlockEventValue>,
 }
 
 impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
@@ -42,7 +41,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
     satpoint_to_id: &'a mut Table<'db, 'tx, &'static SatPointValue, &'static InscriptionIdValue>,
     timestamp: u32,
     value_cache: &'a mut HashMap<OutPoint, u64>,
-    block_to_inscription_events: &'a mut Table<'db, 'tx, u64, BlockEventValue>,
+    // block_to_inscription_events: &'a mut Table<'db, 'tx, u64, BlockEventValue>,
   ) -> Result<Self> {
     let next_number = number_to_id
       .iter()?
@@ -66,7 +65,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
       satpoint_to_id,
       timestamp,
       value_cache,
-      block_to_inscription_events,
+      // block_to_inscription_events,
     })
   }
   //TODO: lam main inscription indexer
@@ -78,7 +77,6 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
     inscription_events: &mut Vec<entry::InscriptionEventEntry>,
   ) -> Result<u64> {
     let mut inscriptions = Vec::new();
-    _ = self.block_to_inscription_events; //TODO: remove this
     let mut input_value = 0;
     for tx_in in &tx.input {
       if tx_in.previous_output.is_null() {

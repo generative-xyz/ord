@@ -257,7 +257,6 @@ impl Updater {
     let mut sat_ranges_written = 0;
     let mut outputs_in_block = 0;
     let mut inscription_events = Vec::<entry::InscriptionEventEntry>::new();
-    let mut _block_inscription_events = wtx.open_table(OUTPOINT_TO_SAT_RANGES)?;
 
     let time = timestamp(block.header.time);
 
@@ -305,7 +304,6 @@ impl Updater {
       &mut satpoint_to_inscription_id,
       block.header.time,
       value_cache,
-      &mut block_to_events,
     )?;
 
     if self.index_sats {
