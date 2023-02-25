@@ -144,36 +144,11 @@ impl Entry for SatRange {
   }
 }
 
-pub(super) type InscriptionEventValue = [u8; 40];
-
-fn convert_array(array: &[u8]) -> [u8; 36] {
-  array.try_into().expect("slice with incorrect length")
-}
-
 #[derive(Deserialize, Serialize)]
 pub(crate) struct InscriptionEventEntry {
-  pub(crate) event: u32,
   pub(crate) inscription_id: InscriptionId,
-}
-
-impl Entry for InscriptionEventEntry {
-  type Value = InscriptionEventValue;
-
-  fn load(value: Self::Value) -> Self {
-    let (txid, event) = value.split_at(36);
-    Self {
-      event: u32::from_be_bytes(event.try_into().unwrap()),
-      inscription_id: InscriptionId::load(convert_array(txid)),
-    }
-  }
-
-  fn store(self) -> Self::Value {
-    let mut value = [0; 40];
-    let (txid, index) = value.split_at_mut(32);
-    txid.copy_from_slice(&self.inscription_id.store());
-    index.copy_from_slice(&self.event.to_be_bytes());
-    value
-  }
+  pub(crate) event: u32,
+  pub(crate) sat: Option<SatPoint>,
 }
 
 #[derive(Deserialize, Serialize)]

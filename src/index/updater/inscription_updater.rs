@@ -210,6 +210,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
         let event = entry::InscriptionEventEntry {
           event: 1,
           inscription_id: flotsam.inscription_id,
+          sat: Some(new_satpoint),
         };
         inscription_events.push(event)
       }
@@ -217,11 +218,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
         self
           .number_to_id
           .insert(&self.next_number, &inscription_id)?;
-        let event = entry::InscriptionEventEntry {
-          event: 0,
-          inscription_id: flotsam.inscription_id,
-        };
-        inscription_events.push(event);
+
         let mut sat = None;
         if let Some(input_sat_ranges) = input_sat_ranges {
           let mut offset = 0;
@@ -247,7 +244,12 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
           }
           .store(),
         )?;
-
+        let event = entry::InscriptionEventEntry {
+          event: 0,
+          inscription_id: flotsam.inscription_id,
+          sat: Some(new_satpoint),
+        };
+        inscription_events.push(event);
         self.next_number += 1;
       }
     }

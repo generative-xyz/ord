@@ -826,6 +826,7 @@ impl Server {
           _ => "unknown".to_string(),
         },
         inscription_id: event.inscription_id,
+        sat_point: event.sat,
       };
       inscription_events.push(inscription_event)
     }

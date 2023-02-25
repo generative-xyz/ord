@@ -1,10 +1,11 @@
 use {super::*, serde::Serialize};
 
-#[derive(Debug, PartialEq, Clone, Hash, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Deserialize, Serialize)]
 
 pub struct InscriptionEvent {
   pub(crate) event: String,
   pub(crate) inscription_id: InscriptionId,
+  pub(crate) sat_point: Option<SatPoint>,
 }
 
 // impl<'de> Deserialize<'de> for InscriptionEvent {
