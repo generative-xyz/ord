@@ -1,5 +1,6 @@
-use axum::Json;
+use serde::Deserialize;
 
+use super::wallet::inscribe::Inscribe;
 use {
   self::{
     deserialize_from_str::DeserializeFromStr,
@@ -18,11 +19,12 @@ use {
   },
   axum::{
     body,
-    extract::{Extension, Path, Query},
+    extract::{Extension, Json, Path, Query},
     headers::UserAgent,
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
     routing::get,
+    routing::post,
     Router, TypedHeader,
   },
   axum_server::Handle,
@@ -41,6 +43,15 @@ use {
     set_header::SetResponseHeaderLayer,
   },
 };
+
+#[derive(Deserialize)]
+struct InscribeRequest {
+  wallet: String,
+  file: PathBuf,
+  destination: Option<Address>,
+  fee_rate: FeeRate,
+  dry_run: Option<bool>,
+}
 
 mod error;
 
@@ -142,6 +153,7 @@ impl Server {
 
       let config = options.load_config()?;
       let acme_domains = self.acme_domains()?;
+      let new_options = options.clone();
 
       let page_config = Arc::new(PageConfig {
         chain: options.chain(),
@@ -187,9 +199,15 @@ impl Server {
         .route("/api/inscriptions/:from", get(Self::inscriptions_from_api))
         .route("/api/inscriptions", get(Self::inscriptions_from_latest))
         .route("/api/search", get(Self::search_inscription_api))
+        .route("/api/wallet/inscribe", post(Self::wallet_inscribe_api))
+        .route(
+          "/api/wallet/send-inscription",
+          post(Self::wallet_send_inscription_api),
+        )
         .layer(Extension(index))
         .layer(Extension(page_config))
         .layer(Extension(Arc::new(config)))
+        .layer(Extension(Arc::new(new_options)))
         .layer(SetResponseHeaderLayer::if_not_present(
           header::CONTENT_SECURITY_POLICY,
           HeaderValue::from_static("default-src 'self'"),
@@ -800,6 +818,126 @@ impl Server {
       satpoint: (satpoint),
       timestamp: (timestamp(entry.timestamp).to_string()),
     }))
+  }
+
+  async fn wallet_inscribe_api(
+    Extension(index): Extension<Arc<Index>>,
+    Extension(options): Extension<Arc<Options>>,
+    Json(payload): Json<InscribeRequest>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    // let mut newOptions = options.clone();
+    // newOptions.wallet =;
+    let new_options = Options {
+      bitcoin_data_dir: options.bitcoin_data_dir.clone(),
+      chain_argument: options.chain_argument.clone(),
+      config: options.config.clone(),
+      config_dir: options.config_dir.clone(),
+      cookie_file: options.cookie_file.clone(),
+      data_dir: options.data_dir.clone(),
+      first_inscription_height: options.first_inscription_height.clone(),
+      height_limit: options.height_limit.clone(),
+      index: options.index.clone(),
+      index_sats: options.index_sats.clone(),
+      regtest: options.regtest.clone(),
+      rpc_url: options.rpc_url.clone(),
+      signet: options.signet.clone(),
+      testnet: options.testnet.clone(),
+      wallet: payload.wallet,
+    };
+
+    let inscribe_instance = Inscribe {
+      fee_rate: payload.fee_rate,
+      commit_fee_rate: None,
+      file: payload.file,
+      no_backup: false,
+      no_limit: false,
+      dry_run: payload.dry_run.unwrap_or(false),
+      destination: payload.destination,
+      satpoint: None,
+    };
+
+    let _ = inscribe_instance.run_api(new_options, index);
+    // let inscription = Inscription::from_file(newOptions.chain(), &payload.file)?;
+
+    // already initialized
+    // let index = Index::open(&options)?;
+    // index.update()?;
+
+    // let client = newOptions.bitcoin_rpc_client_for_wallet_command(false)?;
+
+    // let mut utxos = index.get_unspent_outputs(Wallet::load(&newOptions)?)?;
+
+    // let inscriptions = index.get_inscriptions(None)?;
+
+    // let commit_tx_change = [get_change_address(&client)?, get_change_address(&client)?];
+
+    // let reveal_tx_destination = payload
+    //   .destination
+    //   .map(Ok)
+    //   .unwrap_or_else(|| get_change_address(&client))?;
+
+    // let (unsigned_commit_tx, reveal_tx, recovery_key_pair) =
+    //   Inscribe::create_inscription_transactions(
+    //     self.satpoint,
+    //     inscription,
+    //     inscriptions,
+    //     options.chain().network(),
+    //     utxos.clone(),
+    //     commit_tx_change,
+    //     reveal_tx_destination,
+    //     self.commit_fee_rate.unwrap_or(self.fee_rate),
+    //     self.fee_rate,
+    //     self.no_limit,
+    //   )?;
+
+    // utxos.insert(
+    //   reveal_tx.input[0].previous_output,
+    //   Amount::from_sat(unsigned_commit_tx.output[0].value),
+    // );
+
+    // let fees =
+    //   Self::calculate_fee(&unsigned_commit_tx, &utxos) + Self::calculate_fee(&reveal_tx, &utxos);
+
+    // if self.dry_run {
+    //   print_json(Output {
+    //     commit: unsigned_commit_tx.txid(),
+    //     reveal: reveal_tx.txid(),
+    //     inscription: reveal_tx.txid().into(),
+    //     fees,
+    //   })?;
+    // } else {
+    //   if !self.no_backup {
+    //     Inscribe::backup_recovery_key(&client, recovery_key_pair, options.chain().network())?;
+    //   }
+
+    //   let signed_raw_commit_tx = client
+    //     .sign_raw_transaction_with_wallet(&unsigned_commit_tx, None, None)?
+    //     .hex;
+
+    //   let commit = client
+    //     .send_raw_transaction(&signed_raw_commit_tx)
+    //     .context("Failed to send commit transaction")?;
+
+    //   let reveal = client
+    //     .send_raw_transaction(&reveal_tx)
+    //     .context("Failed to send reveal transaction")?;
+
+    //   print_json(Output {
+    //     commit,
+    //     reveal,
+    //     inscription: reveal.into(),
+    //     fees,
+    //   })?;
+    // };
+    Err(ServerError::NotFound("id or number not found".to_string()))
+  }
+
+  async fn wallet_send_inscription_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Query(search): Query<Search>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    Self::search_inscription_api_inner(axum::Extension(page_config), &index, &search.query).await
   }
 
   async fn range(
