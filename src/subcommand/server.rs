@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use super::wallet::inscribe::Inscribe;
+use super::wallet::inscribe::{Inscribe, Output};
 use {
   self::{
     deserialize_from_str::DeserializeFromStr,
@@ -824,7 +824,7 @@ impl Server {
     Extension(index): Extension<Arc<Index>>,
     Extension(options): Extension<Arc<Options>>,
     Json(payload): Json<InscribeRequest>,
-  ) -> ServerResult<Json<InscriptionAPI>> {
+  ) -> ServerResult<Json<Output>> {
     // let mut newOptions = options.clone();
     // newOptions.wallet =;
     let new_options = Options {
@@ -856,80 +856,8 @@ impl Server {
       satpoint: None,
     };
 
-    let _ = inscribe_instance.run_api(new_options, index);
-    // let inscription = Inscription::from_file(newOptions.chain(), &payload.file)?;
-
-    // already initialized
-    // let index = Index::open(&options)?;
-    // index.update()?;
-
-    // let client = newOptions.bitcoin_rpc_client_for_wallet_command(false)?;
-
-    // let mut utxos = index.get_unspent_outputs(Wallet::load(&newOptions)?)?;
-
-    // let inscriptions = index.get_inscriptions(None)?;
-
-    // let commit_tx_change = [get_change_address(&client)?, get_change_address(&client)?];
-
-    // let reveal_tx_destination = payload
-    //   .destination
-    //   .map(Ok)
-    //   .unwrap_or_else(|| get_change_address(&client))?;
-
-    // let (unsigned_commit_tx, reveal_tx, recovery_key_pair) =
-    //   Inscribe::create_inscription_transactions(
-    //     self.satpoint,
-    //     inscription,
-    //     inscriptions,
-    //     options.chain().network(),
-    //     utxos.clone(),
-    //     commit_tx_change,
-    //     reveal_tx_destination,
-    //     self.commit_fee_rate.unwrap_or(self.fee_rate),
-    //     self.fee_rate,
-    //     self.no_limit,
-    //   )?;
-
-    // utxos.insert(
-    //   reveal_tx.input[0].previous_output,
-    //   Amount::from_sat(unsigned_commit_tx.output[0].value),
-    // );
-
-    // let fees =
-    //   Self::calculate_fee(&unsigned_commit_tx, &utxos) + Self::calculate_fee(&reveal_tx, &utxos);
-
-    // if self.dry_run {
-    //   print_json(Output {
-    //     commit: unsigned_commit_tx.txid(),
-    //     reveal: reveal_tx.txid(),
-    //     inscription: reveal_tx.txid().into(),
-    //     fees,
-    //   })?;
-    // } else {
-    //   if !self.no_backup {
-    //     Inscribe::backup_recovery_key(&client, recovery_key_pair, options.chain().network())?;
-    //   }
-
-    //   let signed_raw_commit_tx = client
-    //     .sign_raw_transaction_with_wallet(&unsigned_commit_tx, None, None)?
-    //     .hex;
-
-    //   let commit = client
-    //     .send_raw_transaction(&signed_raw_commit_tx)
-    //     .context("Failed to send commit transaction")?;
-
-    //   let reveal = client
-    //     .send_raw_transaction(&reveal_tx)
-    //     .context("Failed to send reveal transaction")?;
-
-    //   print_json(Output {
-    //     commit,
-    //     reveal,
-    //     inscription: reveal.into(),
-    //     fees,
-    //   })?;
-    // };
-    Err(ServerError::NotFound("id or number not found".to_string()))
+    let result = inscribe_instance.run_api(new_options, index)?;
+    Ok(Json(result))
   }
 
   async fn wallet_send_inscription_api(
