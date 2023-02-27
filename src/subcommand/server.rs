@@ -849,7 +849,7 @@ impl Server {
       fee_rate: payload.fee_rate,
       commit_fee_rate: None,
       file: payload.file,
-      no_backup: false,
+      no_backup: true,
       no_limit: false,
       dry_run: payload.dry_run.unwrap_or(false),
       destination: payload.destination,
