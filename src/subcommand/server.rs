@@ -1,9 +1,17 @@
+use serde::Deserialize;
+
+use super::wallet::inscribe::{Inscribe, Output};
 use {
   self::{
     deserialize_from_str::DeserializeFromStr,
     error::{OptionExt, ServerError, ServerResult},
   },
   super::*,
+  crate::apis::BlockEventAPI,
+  crate::apis::InscriptionAPI,
+  crate::apis::InscriptionsAPI,
+  crate::apis::OutputAPI,
+  crate::apis::SatAPI,
   crate::page_config::PageConfig,
   crate::templates::{
     BlockHtml, ClockSvg, HomeHtml, InputHtml, InscriptionHtml, InscriptionsHtml, OutputHtml,
@@ -12,11 +20,12 @@ use {
   },
   axum::{
     body,
-    extract::{Extension, Path, Query},
+    extract::{Extension, Json, Path, Query},
     headers::UserAgent,
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
     routing::get,
+    routing::post,
     Router, TypedHeader,
   },
   axum_server::Handle,
@@ -35,6 +44,15 @@ use {
     set_header::SetResponseHeaderLayer,
   },
 };
+
+#[derive(Deserialize)]
+struct InscribeRequest {
+  wallet: String,
+  file: PathBuf,
+  destination: Option<Address>,
+  fee_rate: FeeRate,
+  dry_run: Option<bool>,
+}
 
 mod error;
 
@@ -136,6 +154,7 @@ impl Server {
 
       let config = options.load_config()?;
       let acme_domains = self.acme_domains()?;
+      let new_options = options.clone();
 
       let page_config = Arc::new(PageConfig {
         chain: options.chain(),
@@ -168,9 +187,29 @@ impl Server {
         .route("/static/*path", get(Self::static_asset))
         .route("/status", get(Self::status))
         .route("/tx/:txid", get(Self::transaction))
+        .route("/api/sat/:sat", get(Self::sat_api))
+        .route(
+          "/api/inscription/:inscription_id",
+          get(Self::inscription_api),
+        )
+        .route("/api/output/:output", get(Self::output_api))
+        .route(
+          "/api/inscription-index/:index",
+          get(Self::inscription_index_api),
+        )
+        .route("/api/inscriptions/:from", get(Self::inscriptions_from_api))
+        .route("/api/inscriptions", get(Self::inscriptions_from_latest))
+        .route("/api/search", get(Self::search_inscription_api))
+        .route("/api/events", get(Self::get_inscriptions_events_by_block))
+        .route("/api/wallet/inscribe", post(Self::wallet_inscribe_api))
+        .route(
+          "/api/wallet/send-inscription",
+          post(Self::wallet_send_inscription_api),
+        )
         .layer(Extension(index))
         .layer(Extension(page_config))
         .layer(Extension(Arc::new(config)))
+        .layer(Extension(Arc::new(new_options)))
         .layer(SetResponseHeaderLayer::if_not_present(
           header::CONTENT_SECURITY_POLICY,
           HeaderValue::from_static("default-src 'self'"),
@@ -386,6 +425,74 @@ impl Server {
     )
   }
 
+  async fn sat_api(
+    Extension(_page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(DeserializeFromStr(sat)): Path<DeserializeFromStr<Sat>>,
+  ) -> ServerResult<Json<SatAPI>> {
+    let satpoint = index.rare_sat_satpoint(sat)?;
+    Ok(Json(SatAPI {
+      sat: (sat),
+      satpoint: (satpoint),
+      block: (index.blocktime(sat.height())?).timestamp().to_string(),
+      inscription: (index.get_inscription_id_by_sat(sat)?),
+    }))
+  }
+
+  async fn inscription_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(inscription_id): Path<InscriptionId>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    let entry = index
+      .get_inscription_entry(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let inscription = index
+      .get_inscription_by_id(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let satpoint = index
+      .get_inscription_satpoint_by_id(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let output = index
+      .get_transaction(satpoint.outpoint.txid)?
+      .ok_or_not_found(|| format!("inscription {inscription_id} current transaction"))?
+      .output
+      .into_iter()
+      .nth(satpoint.outpoint.vout.try_into().unwrap())
+      .ok_or_not_found(|| format!("inscription {inscription_id} current transaction output"))?;
+
+    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+      Some(
+        index
+          .get_inscription_id_by_inscription_number(previous)?
+          .ok_or_not_found(|| format!("inscription {previous}"))?,
+      )
+    } else {
+      None
+    };
+
+    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+
+    let content_type = inscription.content_type().unwrap();
+    Ok(Json(InscriptionAPI {
+      chain: (page_config.chain),
+      genesis_fee: (entry.fee),
+      genesis_height: (entry.height),
+      content_type: Some(content_type.to_string()),
+      inscription_id: (inscription_id),
+      next: (next),
+      number: (entry.number),
+      output: (output),
+      previous: (previous),
+      sat: (entry.sat),
+      satpoint: (satpoint),
+      timestamp: (timestamp(entry.timestamp).to_string()),
+    }))
+  }
+
   async fn ordinal(Path(sat): Path<String>) -> Redirect {
     Redirect::to(&format!("/sat/{sat}"))
   }
@@ -436,6 +543,380 @@ impl Server {
       }
       .page(page_config, index.has_sat_index()?),
     )
+  }
+
+  async fn output_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(outpoint): Path<OutPoint>,
+  ) -> ServerResult<Json<OutputAPI>> {
+    let list = if index.has_sat_index()? {
+      index.list(outpoint)?
+    } else {
+      None
+    };
+
+    let output = if outpoint == OutPoint::null() {
+      let mut value = 0;
+
+      if let Some(List::Unspent(ranges)) = &list {
+        for (start, end) in ranges {
+          value += end - start;
+        }
+      }
+
+      TxOut {
+        value,
+        script_pubkey: Script::new(),
+      }
+    } else {
+      index
+        .get_transaction(outpoint.txid)?
+        .ok_or_not_found(|| format!("output {outpoint}"))?
+        .output
+        .into_iter()
+        .nth(outpoint.vout as usize)
+        .ok_or_not_found(|| format!("output {outpoint}"))?
+    };
+
+    let inscriptions = index.get_inscriptions_on_output(outpoint)?;
+
+    Ok(Json(OutputAPI {
+      outpoint: (outpoint),
+      list: (list),
+      chain: (page_config.chain),
+      output: (output),
+      inscriptions: (inscriptions),
+    }))
+  }
+
+  async fn inscription_index_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(inscription_index): Path<u64>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    let inscription_id = index
+      .get_inscription_id_by_inscription_number(inscription_index)?
+      .ok_or_not_found(|| format!("inscription {inscription_index}"))?;
+
+    let entry = index
+      .get_inscription_entry(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let inscription = index
+      .get_inscription_by_id(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let satpoint = index
+      .get_inscription_satpoint_by_id(inscription_id)?
+      .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
+
+    let output = index
+      .get_transaction(satpoint.outpoint.txid)?
+      .ok_or_not_found(|| format!("inscription {inscription_id} current transaction"))?
+      .output
+      .into_iter()
+      .nth(satpoint.outpoint.vout.try_into().unwrap())
+      .ok_or_not_found(|| format!("inscription {inscription_id} current transaction output"))?;
+
+    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+      Some(
+        index
+          .get_inscription_id_by_inscription_number(previous)?
+          .ok_or_not_found(|| format!("inscription {previous}"))?,
+      )
+    } else {
+      None
+    };
+
+    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+
+    let content_type = inscription.content_type().unwrap();
+    Ok(Json(InscriptionAPI {
+      chain: (page_config.chain),
+      genesis_fee: (entry.fee),
+      genesis_height: (entry.height),
+      content_type: Some(content_type.to_string()),
+      inscription_id: (inscription_id),
+      next: (next),
+      number: (entry.number),
+      output: (output),
+      previous: (previous),
+      sat: (entry.sat),
+      satpoint: (satpoint),
+      timestamp: (timestamp(entry.timestamp).to_string()),
+    }))
+  }
+
+  async fn inscriptions_from_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(from): Path<u64>,
+  ) -> ServerResult<Json<InscriptionsAPI>> {
+    Self::inscriptions_inner_api(page_config, index, Some(from)).await
+  }
+
+  async fn inscriptions_inner_api(
+    _page_config: Arc<PageConfig>,
+    index: Arc<Index>,
+    from: Option<u64>,
+  ) -> ServerResult<Json<InscriptionsAPI>> {
+    let (inscriptions, prev, next) = index.get_latest_inscriptions_with_prev_and_next(100, from)?;
+    Ok(Json(InscriptionsAPI {
+      inscriptions,
+      prev,
+      next,
+    }))
+  }
+
+  async fn inscriptions_from_latest(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+  ) -> ServerResult<Json<InscriptionsAPI>> {
+    Self::inscriptions_inner_api(page_config, index, None).await
+  }
+
+  async fn search_inscription_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Query(search): Query<Search>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    Self::search_inscription_api_inner(axum::Extension(page_config), &index, &search.query).await
+  }
+
+  async fn search_inscription_api_inner(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    index: &Index,
+    query: &str,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    lazy_static! {
+      static ref INSCRIPTION_INDEX: Regex = Regex::new(r"^[[:xdigit:]]{64}i\d+$").unwrap();
+      static ref INSCRIPTION_ID: Regex = Regex::new(r"^[[:xdigit:]]{64}i\d+$").unwrap();
+    }
+
+    let query = query.trim();
+    // let mut insc_id: inscription_id::InscriptionId;
+
+    if INSCRIPTION_ID.is_match(query) {
+      let a = inscription_id::InscriptionId::from_str(query);
+      let insc_id = a.unwrap();
+      Self::search_by_id(page_config, &index, insc_id).await
+    } else if query.parse::<u64>().is_ok() {
+      let inscription_index = query.parse::<u64>();
+      let inscription_index = inscription_index.unwrap();
+      Self::search_by_index(page_config, &index, inscription_index).await
+    } else {
+      Err(ServerError::NotFound("id or number not found".to_string()))
+    }
+  }
+
+  async fn search_by_id(
+    page_config: Arc<PageConfig>,
+    index: &Index,
+    insc_id: InscriptionId,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    let entry = index
+      .get_inscription_entry(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let inscription = index
+      .get_inscription_by_id(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let satpoint = index
+      .get_inscription_satpoint_by_id(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let output = index
+      .get_transaction(satpoint.outpoint.txid)?
+      .ok_or_not_found(|| format!("inscription {insc_id} current transaction"))?
+      .output
+      .into_iter()
+      .nth(satpoint.outpoint.vout.try_into().unwrap())
+      .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
+
+    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+      Some(
+        index
+          .get_inscription_id_by_inscription_number(previous)?
+          .ok_or_not_found(|| format!("inscription {previous}"))?,
+      )
+    } else {
+      None
+    };
+
+    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+
+    let content_type = inscription.content_type().unwrap();
+    Ok(Json(InscriptionAPI {
+      chain: (page_config.chain),
+      genesis_fee: (entry.fee),
+      genesis_height: (entry.height),
+      content_type: Some(content_type.to_string()),
+      inscription_id: (insc_id),
+      next: (next),
+      number: (entry.number),
+      output: (output),
+      previous: (previous),
+      sat: (entry.sat),
+      satpoint: (satpoint),
+      timestamp: (timestamp(entry.timestamp).to_string()),
+    }))
+  }
+
+  async fn search_by_index(
+    page_config: Arc<PageConfig>,
+    index: &Index,
+    inscription_index: u64,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    let insc_id = index
+      .get_inscription_id_by_inscription_number(inscription_index)?
+      .ok_or_not_found(|| format!("inscription {inscription_index}"))?;
+
+    let entry = index
+      .get_inscription_entry(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let inscription = index
+      .get_inscription_by_id(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let satpoint = index
+      .get_inscription_satpoint_by_id(insc_id)?
+      .ok_or_not_found(|| format!("inscription {insc_id}"))?;
+
+    let output = index
+      .get_transaction(satpoint.outpoint.txid)?
+      .ok_or_not_found(|| format!("inscription {insc_id} current transaction"))?
+      .output
+      .into_iter()
+      .nth(satpoint.outpoint.vout.try_into().unwrap())
+      .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
+
+    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+      Some(
+        index
+          .get_inscription_id_by_inscription_number(previous)?
+          .ok_or_not_found(|| format!("inscription {previous}"))?,
+      )
+    } else {
+      None
+    };
+
+    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+
+    let content_type = inscription.content_type().unwrap();
+    Ok(Json(InscriptionAPI {
+      chain: (page_config.chain),
+      genesis_fee: (entry.fee),
+      genesis_height: (entry.height),
+      content_type: Some(content_type.to_string()),
+      inscription_id: (insc_id),
+      next: (next),
+      number: (entry.number),
+      output: (output),
+      previous: (previous),
+      sat: (entry.sat),
+      satpoint: (satpoint),
+      timestamp: (timestamp(entry.timestamp).to_string()),
+    }))
+  }
+
+  //TODO: lam write api for this
+  async fn get_inscriptions_events_by_block(
+    Extension(_page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Query(search): Query<Search>,
+  ) -> ServerResult<Json<BlockEventAPI>> {
+    let query = search.query.trim();
+    let block_height = query.parse::<u64>().unwrap();
+    let events = index
+      .get_block_inscription_event(block_height)?
+      .ok_or_not_found(|| format!("events at block {query}"))?;
+    // Self::search_inscription_api_inner(axum::Extension(page_config), &index, &search.query).await
+    let mut inscription_events = Vec::<InscriptionEvent>::new();
+
+    for event in events.events.iter() {
+      let inscription_event = InscriptionEvent {
+        event: match event.event {
+          0 => "inscribe".to_string(),
+          1 => "transfer".to_string(),
+          _ => "unknown".to_string(),
+        },
+        inscription_id: event.inscription_id,
+        sat_point: event.sat,
+      };
+      inscription_events.push(inscription_event)
+    }
+
+    Ok(Json(BlockEventAPI {
+      height: block_height,
+      events: inscription_events,
+    }))
+  }
+
+  async fn wallet_inscribe_api(
+    Extension(index): Extension<Arc<Index>>,
+    Extension(options): Extension<Arc<Options>>,
+    Json(payload): Json<InscribeRequest>,
+  ) -> ServerResult<Json<Output>> {
+    // let mut newOptions = options.clone();
+    // newOptions.wallet =;
+    log::info!("wallet_inscribe_api");
+
+    let new_options = Options {
+      bitcoin_data_dir: options.bitcoin_data_dir.clone(),
+      chain_argument: options.chain_argument.clone(),
+      config: options.config.clone(),
+      config_dir: options.config_dir.clone(),
+      cookie_file: options.cookie_file.clone(),
+      data_dir: options.data_dir.clone(),
+      first_inscription_height: options.first_inscription_height.clone(),
+      height_limit: options.height_limit.clone(),
+      index: options.index.clone(),
+      index_sats: options.index_sats.clone(),
+      regtest: options.regtest.clone(),
+      rpc_url: options.rpc_url.clone(),
+      signet: options.signet.clone(),
+      testnet: options.testnet.clone(),
+      wallet: payload.wallet,
+    };
+    log::info!("new_options init..");
+
+    let inscribe_instance = Inscribe {
+      fee_rate: payload.fee_rate,
+      commit_fee_rate: None,
+      file: payload.file,
+      no_backup: true,
+      no_limit: false,
+      dry_run: payload.dry_run.unwrap_or(false),
+      destination: payload.destination,
+      satpoint: None,
+    };
+
+    log::info!(
+      "inscribe_instance.run_api: {0}",
+      inscribe_instance.file.display()
+    );
+
+    match inscribe_instance.run_api(new_options, index).await {
+      Ok(result) => {
+        log::info!("inscribe_instance.run_api success");
+        Ok(Json(result))
+      }
+      Err(e) => {
+        log::error!("inscribe_instance.run_api error: {0}", e);
+        Err(ServerError::NotFound(e.to_string()))
+      }
+    }
+  }
+
+  async fn wallet_send_inscription_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Query(search): Query<Search>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    Self::search_inscription_api_inner(axum::Extension(page_config), &index, &search.query).await
   }
 
   async fn range(

@@ -1,8 +1,8 @@
 use {
   self::{
     entry::{
-      BlockHashValue, Entry, InscriptionEntry, InscriptionEntryValue, InscriptionIdValue,
-      OutPointValue, SatPointValue, SatRange,
+      BlockEventEntry, BlockEventValue, BlockHashValue, Entry, InscriptionEntry,
+      InscriptionEntryValue, InscriptionIdValue, OutPointValue, SatPointValue, SatRange,
     },
     updater::Updater,
   },
@@ -42,6 +42,7 @@ define_table! { SAT_TO_INSCRIPTION_ID, u64, &InscriptionIdValue }
 define_table! { SAT_TO_SATPOINT, u64, &SatPointValue }
 define_table! { STATISTIC_TO_COUNT, u64, u64 }
 define_table! { WRITE_TRANSACTION_STARTING_BLOCK_COUNT_TO_TIMESTAMP, u64, u128 }
+define_table! { BLOCK_INSCRIPTION_EVENT, u64, BlockEventValue}
 
 pub(crate) struct Index {
   auth: Auth,
@@ -56,7 +57,7 @@ pub(crate) struct Index {
   rpc_url: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub(crate) enum List {
   Spent,
   Unspent(Vec<(u64, u64)>),
@@ -136,12 +137,24 @@ impl Index {
     let rpc_url = options.rpc_url();
     let cookie_file = options.cookie_file()?;
 
-    log::info!(
-      "Connecting to Bitcoin Core RPC server at {rpc_url} using credentials from `{}`",
-      cookie_file.display()
-    );
+    let mut auth = Auth::UserPass("".to_string(), "".to_string());
+    _ = auth;
+    if env::var("BTC_RPC_USER").is_ok() {
+      let btc_rpc_user = env::var("BTC_RPC_USER")?;
+      let btc_rpc_pass = env::var("BTC_RPC_PASS")?;
 
-    let auth = Auth::CookieFile(cookie_file);
+      auth = Auth::UserPass(btc_rpc_user.clone(), btc_rpc_pass.clone());
+      log::info!(
+        "Connecting to Bitcoin Core RPC server at {rpc_url} using credentials from `{}`",
+        btc_rpc_user
+      );
+    } else {
+      auth = Auth::CookieFile(cookie_file.clone());
+      log::info!(
+        "Connecting to Bitcoin Core RPC server at {rpc_url} using credentials from `{}`",
+        cookie_file.display()
+      );
+    }
 
     let client = Client::new(&rpc_url, auth.clone()).context("failed to connect to RPC URL")?;
 
@@ -214,6 +227,8 @@ impl Index {
 
         tx.open_table(STATISTIC_TO_COUNT)?
           .insert(&Statistic::Schema.key(), &SCHEMA_VERSION)?;
+
+        tx.open_table(BLOCK_INSCRIPTION_EVENT)?;
 
         if options.index_sats {
           tx.open_table(OUTPOINT_TO_SAT_RANGES)?
@@ -806,6 +821,27 @@ impl Index {
         .open_table(INSCRIPTION_ID_TO_INSCRIPTION_ENTRY)?
         .get(&inscription_id.store())?
         .map(|value| InscriptionEntry::load(value.value())),
+    )
+  }
+
+  pub(crate) fn get_block_inscription_event(
+    &self,
+    block_height: u64,
+  ) -> Result<Option<BlockEventEntry>> {
+    // let mut r2 = "".to_string();
+    Ok(
+      self
+        .database
+        .begin_read()?
+        .open_table(BLOCK_INSCRIPTION_EVENT)?
+        .get(&block_height)?
+        .map(|value| {
+          BlockEventEntry::load({
+            let r2 = value.value().to_string().into_boxed_str();
+            let r2_static = Box::leak(r2);
+            r2_static
+          })
+        }),
     )
   }
 

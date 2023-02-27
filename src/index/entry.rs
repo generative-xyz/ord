@@ -143,3 +143,33 @@ impl Entry for SatRange {
     n.to_le_bytes()[0..11].try_into().unwrap()
   }
 }
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct InscriptionEventEntry {
+  pub(crate) inscription_id: InscriptionId,
+  pub(crate) event: u32,
+  pub(crate) sat: Option<SatPoint>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct BlockEventEntry {
+  pub(crate) events: Vec<InscriptionEventEntry>,
+}
+
+pub(super) type BlockEventValue = &'static str;
+
+impl Entry for BlockEventEntry {
+  type Value = BlockEventValue;
+
+  fn load(value: Self::Value) -> Self {
+    let new_s = value.clone();
+    let events: BlockEventEntry = serde_json::from_str(new_s).unwrap();
+    events
+  }
+
+  fn store(self) -> Self::Value {
+    let json_str = serde_json::to_string(&self).unwrap();
+    let my_static_str: &'static str = Box::leak(json_str.into_boxed_str());
+    my_static_str
+  }
+}

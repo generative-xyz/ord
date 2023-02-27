@@ -22,6 +22,7 @@ use {
     height::Height,
     index::{Index, List},
     inscription::Inscription,
+    inscription_event::InscriptionEvent,
     inscription_id::InscriptionId,
     media::Media,
     options::Options,
@@ -93,7 +94,7 @@ macro_rules! tprintln {
       }
     };
 }
-
+mod apis;
 mod arguments;
 mod blocktime;
 mod chain;
@@ -106,6 +107,7 @@ mod fee_rate;
 mod height;
 mod index;
 mod inscription;
+mod inscription_event;
 mod inscription_id;
 mod media;
 mod object;

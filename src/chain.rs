@@ -11,7 +11,6 @@ pub(crate) enum Chain {
   Signet,
   Regtest,
 }
-
 impl Chain {
   pub(crate) fn network(self) -> Network {
     match self {
