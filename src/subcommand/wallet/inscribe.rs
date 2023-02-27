@@ -133,7 +133,7 @@ impl Inscribe {
     Ok(())
   }
 
-  pub(crate) fn run_api(self, options: Options, index: Arc<Index>) -> Result<Output, Error> {
+  pub(crate) async fn run_api(self, options: Options, index: Arc<Index>) -> Result<Output, Error> {
     let inscription = Inscription::from_file(options.chain(), &self.file)?;
 
     // let index = Index::open(&options)?;

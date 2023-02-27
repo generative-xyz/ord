@@ -827,6 +827,8 @@ impl Server {
   ) -> ServerResult<Json<Output>> {
     // let mut newOptions = options.clone();
     // newOptions.wallet =;
+    log::info!("wallet_inscribe_api");
+
     let new_options = Options {
       bitcoin_data_dir: options.bitcoin_data_dir.clone(),
       chain_argument: options.chain_argument.clone(),
@@ -844,6 +846,7 @@ impl Server {
       testnet: options.testnet.clone(),
       wallet: payload.wallet,
     };
+    log::info!("new_options init..");
 
     let inscribe_instance = Inscribe {
       fee_rate: payload.fee_rate,
@@ -856,8 +859,21 @@ impl Server {
       satpoint: None,
     };
 
-    let result = inscribe_instance.run_api(new_options, index)?;
-    Ok(Json(result))
+    log::info!(
+      "inscribe_instance.run_api: {0}",
+      inscribe_instance.file.display()
+    );
+
+    match inscribe_instance.run_api(new_options, index).await {
+      Ok(result) => {
+        log::info!("inscribe_instance.run_api success");
+        Ok(Json(result))
+      }
+      Err(e) => {
+        log::error!("inscribe_instance.run_api error: {0}", e);
+        Err(ServerError::NotFound(e.to_string()))
+      }
+    }
   }
 
   async fn wallet_send_inscription_api(
