@@ -1,5 +1,6 @@
-use axum::Json;
+use serde::Deserialize;
 
+use super::wallet::inscribe::{Inscribe, Output};
 use {
   self::{
     deserialize_from_str::DeserializeFromStr,
@@ -19,11 +20,12 @@ use {
   },
   axum::{
     body,
-    extract::{Extension, Path, Query},
+    extract::{Extension, Json, Path, Query},
     headers::UserAgent,
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
     routing::get,
+    routing::post,
     Router, TypedHeader,
   },
   axum_server::Handle,
@@ -42,6 +44,15 @@ use {
     set_header::SetResponseHeaderLayer,
   },
 };
+
+#[derive(Deserialize)]
+struct InscribeRequest {
+  wallet: String,
+  file: PathBuf,
+  destination: Option<Address>,
+  fee_rate: FeeRate,
+  dry_run: Option<bool>,
+}
 
 mod error;
 
@@ -143,6 +154,7 @@ impl Server {
 
       let config = options.load_config()?;
       let acme_domains = self.acme_domains()?;
+      let new_options = options.clone();
 
       let page_config = Arc::new(PageConfig {
         chain: options.chain(),
@@ -189,9 +201,15 @@ impl Server {
         .route("/api/inscriptions", get(Self::inscriptions_from_latest))
         .route("/api/search", get(Self::search_inscription_api))
         .route("/api/events", get(Self::get_inscriptions_events_by_block))
+        .route("/api/wallet/inscribe", post(Self::wallet_inscribe_api))
+        .route(
+          "/api/wallet/send-inscription",
+          post(Self::wallet_send_inscription_api),
+        )
         .layer(Extension(index))
         .layer(Extension(page_config))
         .layer(Extension(Arc::new(config)))
+        .layer(Extension(Arc::new(new_options)))
         .layer(SetResponseHeaderLayer::if_not_present(
           header::CONTENT_SECURITY_POLICY,
           HeaderValue::from_static("default-src 'self'"),
@@ -835,6 +853,70 @@ impl Server {
       height: block_height,
       events: inscription_events,
     }))
+  }
+
+  async fn wallet_inscribe_api(
+    Extension(index): Extension<Arc<Index>>,
+    Extension(options): Extension<Arc<Options>>,
+    Json(payload): Json<InscribeRequest>,
+  ) -> ServerResult<Json<Output>> {
+    // let mut newOptions = options.clone();
+    // newOptions.wallet =;
+    log::info!("wallet_inscribe_api");
+
+    let new_options = Options {
+      bitcoin_data_dir: options.bitcoin_data_dir.clone(),
+      chain_argument: options.chain_argument.clone(),
+      config: options.config.clone(),
+      config_dir: options.config_dir.clone(),
+      cookie_file: options.cookie_file.clone(),
+      data_dir: options.data_dir.clone(),
+      first_inscription_height: options.first_inscription_height.clone(),
+      height_limit: options.height_limit.clone(),
+      index: options.index.clone(),
+      index_sats: options.index_sats.clone(),
+      regtest: options.regtest.clone(),
+      rpc_url: options.rpc_url.clone(),
+      signet: options.signet.clone(),
+      testnet: options.testnet.clone(),
+      wallet: payload.wallet,
+    };
+    log::info!("new_options init..");
+
+    let inscribe_instance = Inscribe {
+      fee_rate: payload.fee_rate,
+      commit_fee_rate: None,
+      file: payload.file,
+      no_backup: true,
+      no_limit: false,
+      dry_run: payload.dry_run.unwrap_or(false),
+      destination: payload.destination,
+      satpoint: None,
+    };
+
+    log::info!(
+      "inscribe_instance.run_api: {0}",
+      inscribe_instance.file.display()
+    );
+
+    match inscribe_instance.run_api(new_options, index).await {
+      Ok(result) => {
+        log::info!("inscribe_instance.run_api success");
+        Ok(Json(result))
+      }
+      Err(e) => {
+        log::error!("inscribe_instance.run_api error: {0}", e);
+        Err(ServerError::NotFound(e.to_string()))
+      }
+    }
+  }
+
+  async fn wallet_send_inscription_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Query(search): Query<Search>,
+  ) -> ServerResult<Json<InscriptionAPI>> {
+    Self::search_inscription_api_inner(axum::Extension(page_config), &index, &search.query).await
   }
 
   async fn range(
