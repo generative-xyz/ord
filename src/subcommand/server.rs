@@ -49,6 +49,7 @@ use {
 struct InscribeRequest {
   wallet: String,
   file: PathBuf,
+  _file_link: Option<String>,
   destination: Option<Address>,
   fee_rate: FeeRate,
   dry_run: Option<bool>,
@@ -855,13 +856,26 @@ impl Server {
     }))
   }
 
+  //  unused for now
+  fn _download_file(self, _options: Options, file_link: String) -> Result<PathBuf, Error> {
+    let resp = reqwest::blocking::get(&file_link)?;
+    let body = resp.bytes().expect("body invalid");
+    let file_name = base64::encode(file_link);
+    let file_path = crate::Path::new(&file_name);
+    match std::fs::write(file_path, &body) {
+      Ok(_) => Ok(file_path.to_path_buf()),
+      Err(e) => {
+        log::error!("_download_file error: {0}", e);
+        Err(e.into())
+      }
+    }
+  }
+
   async fn wallet_inscribe_api(
     Extension(index): Extension<Arc<Index>>,
     Extension(options): Extension<Arc<Options>>,
     Json(payload): Json<InscribeRequest>,
   ) -> ServerResult<Json<Output>> {
-    // let mut newOptions = options.clone();
-    // newOptions.wallet =;
     log::info!("wallet_inscribe_api");
 
     let new_options = Options {
