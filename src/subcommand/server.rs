@@ -461,6 +461,11 @@ impl Server {
       chain: (page_config.chain),
       genesis_fee: (entry.fee),
       genesis_height: (entry.height),
+      address: page_config
+        .chain
+        .address_from_script(&output.script_pubkey)
+        .unwrap()
+        .to_string(),
       content_type: Some(content_type.to_string()),
       inscription_id: (inscription_id),
       next: (next),
@@ -616,6 +621,11 @@ impl Server {
       chain: (page_config.chain),
       genesis_fee: (entry.fee),
       genesis_height: (entry.height),
+      address: page_config
+        .chain
+        .address_from_script(&output.script_pubkey)
+        .unwrap()
+        .to_string(),
       content_type: Some(content_type.to_string()),
       inscription_id: (inscription_id),
       next: (next),
@@ -732,6 +742,11 @@ impl Server {
       chain: (page_config.chain),
       genesis_fee: (entry.fee),
       genesis_height: (entry.height),
+      address: page_config
+        .chain
+        .address_from_script(&output.script_pubkey)
+        .unwrap()
+        .to_string(),
       content_type: Some(content_type.to_string()),
       inscription_id: (insc_id),
       next: (next),
@@ -790,6 +805,11 @@ impl Server {
       chain: (page_config.chain),
       genesis_fee: (entry.fee),
       genesis_height: (entry.height),
+      address: page_config
+        .chain
+        .address_from_script(&output.script_pubkey)
+        .unwrap()
+        .to_string(),
       content_type: Some(content_type.to_string()),
       inscription_id: (insc_id),
       next: (next),
