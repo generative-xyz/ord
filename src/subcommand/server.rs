@@ -420,10 +420,14 @@ impl Server {
   }
 
   async fn inscription_api(
+    Extension(config): Extension<Arc<Config>>,
     Extension(page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
     Path(inscription_id): Path<InscriptionId>,
   ) -> ServerResult<Json<InscriptionAPI>> {
+    if config.is_hidden(inscription_id) {
+      return Err(ServerError::NotFound("not found".to_string()));
+    }
     let entry = index
       .get_inscription_entry(inscription_id)?
       .ok_or_not_found(|| format!("inscription {inscription_id}"))?;
@@ -576,6 +580,7 @@ impl Server {
   }
 
   async fn inscription_index_api(
+    Extension(config): Extension<Arc<Config>>,
     Extension(page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
     Path(inscription_index): Path<u64>,
@@ -583,6 +588,10 @@ impl Server {
     let inscription_id = index
       .get_inscription_id_by_inscription_number(inscription_index)?
       .ok_or_not_found(|| format!("inscription {inscription_index}"))?;
+
+    if config.is_hidden(inscription_id) {
+      return Err(ServerError::NotFound("not found".to_string()));
+    }
 
     let entry = index
       .get_inscription_entry(inscription_id)?
