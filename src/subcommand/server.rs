@@ -1,5 +1,7 @@
 use axum::Json;
 
+use crate::apis::TxAPI;
+
 use {
   self::{
     deserialize_from_str::DeserializeFromStr,
@@ -174,6 +176,7 @@ impl Server {
         .route("/static/*path", get(Self::static_asset))
         .route("/status", get(Self::status))
         .route("/tx/:txid", get(Self::transaction))
+        .route("/api/tx/:txid", get(Self::transaction_api))
         .route("/api/sat/:sat", get(Self::sat_api))
         .route(
           "/api/inscription/:inscription_id",
@@ -922,6 +925,25 @@ impl Server {
       )
       .page(page_config, index.has_sat_index()?),
     )
+  }
+  async fn transaction_api(
+    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(index): Extension<Arc<Index>>,
+    Path(txid): Path<Txid>,
+  ) -> ServerResult<Json<TxAPI>> {
+    let inscription = index.get_inscription_by_id(txid.into())?;
+
+    let blockhash = index.get_transaction_blockhash(txid)?;
+
+    Ok(Json(TxAPI {
+      blockhash,
+      inscription: inscription.map(|_| txid.into()),
+      transaction: index
+        .get_transaction(txid)?
+        .ok_or_not_found(|| format!("transaction {txid}"))?,
+      txid,
+      chain: page_config.chain,
+    }))
   }
 
   async fn status(Extension(index): Extension<Arc<Index>>) -> (StatusCode, &'static str) {
