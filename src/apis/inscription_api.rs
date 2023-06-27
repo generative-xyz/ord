@@ -10,7 +10,7 @@ pub(crate) struct InscriptionAPI {
   pub(crate) content_type: Option<String>,
   pub(crate) inscription_id: InscriptionId,
   pub(crate) next: Option<InscriptionId>,
-  pub(crate) number: u64,
+  pub(crate) number: i64,
   pub(crate) output: TxOut,
   pub(crate) previous: Option<InscriptionId>,
   pub(crate) sat: Option<Sat>,

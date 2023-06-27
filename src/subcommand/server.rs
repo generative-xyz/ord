@@ -421,7 +421,7 @@ impl Server {
     Ok(Json(SatAPI {
       sat: (sat),
       satpoint: (satpoint),
-      block: (index.blocktime(sat.height())?).timestamp().to_string(),
+      block: (index.block_time(sat.height())?).timestamp().to_string(),
       inscription: (index.get_inscription_id_by_sat(sat)?),
     }))
   }
@@ -590,7 +590,7 @@ impl Server {
     Extension(config): Extension<Arc<Config>>,
     Extension(page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
-    Path(inscription_index): Path<u64>,
+    Path(inscription_index): Path<i64>,
   ) -> ServerResult<Json<InscriptionAPI>> {
     let inscription_id = index
       .get_inscription_id_by_inscription_number(inscription_index)?
@@ -657,7 +657,7 @@ impl Server {
   async fn inscriptions_from_api(
     Extension(page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
-    Path(from): Path<u64>,
+    Path(from): Path<i64>,
   ) -> ServerResult<Json<InscriptionsAPI>> {
     Self::inscriptions_inner_api(page_config, index, Some(from)).await
   }
@@ -665,7 +665,7 @@ impl Server {
   async fn inscriptions_inner_api(
     _page_config: Arc<PageConfig>,
     index: Arc<Index>,
-    from: Option<u64>,
+    from: Option<i64>,
   ) -> ServerResult<Json<InscriptionsAPI>> {
     let (inscriptions, prev, next) = index.get_latest_inscriptions_with_prev_and_next(100, from)?;
     Ok(Json(InscriptionsAPI {
@@ -708,7 +708,7 @@ impl Server {
       let insc_id = a.unwrap();
       Self::search_by_id(page_config, &index, insc_id).await
     } else if query.parse::<u64>().is_ok() {
-      let inscription_index = query.parse::<u64>();
+      let inscription_index = query.parse::<i64>();
       let inscription_index = inscription_index.unwrap();
       Self::search_by_index(page_config, &index, inscription_index).await
     } else {
@@ -778,7 +778,7 @@ impl Server {
   async fn search_by_index(
     page_config: Arc<PageConfig>,
     index: &Index,
-    inscription_index: u64,
+    inscription_index: i64,
   ) -> ServerResult<Json<InscriptionAPI>> {
     let insc_id = index
       .get_inscription_id_by_inscription_number(inscription_index)?
