@@ -7,7 +7,7 @@ fn output_found() {
     "--index-sats list 4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:0",
   )
   .rpc_server(&rpc_server)
-  .run_and_check_output::<Vec<Output>>();
+  .run_and_deserialize_output::<Vec<Output>>();
 
   assert_eq!(
     output,
@@ -16,7 +16,9 @@ fn output_found() {
         .parse()
         .unwrap(),
       start: 0,
+      end: 50 * COIN_VALUE,
       size: 50 * COIN_VALUE,
+      offset: 0,
       rarity: "mythic".parse().unwrap(),
       name: "nvtdijuwxlp".into(),
     }]
