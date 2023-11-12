@@ -12,7 +12,6 @@ use {
   crate::apis::InscriptionAPI,
   crate::apis::InscriptionsAPI,
   crate::apis::OutputAPI,
-  crate::apis::SatAPI,
   crate::{
     page_config::PageConfig,
     runes::Rune,
@@ -637,7 +636,7 @@ impl Server {
   }
 
   async fn output_api(
-    Extension(page_config): Extension<Arc<PageConfig>>,
+    Extension(_page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
     Path(outpoint): Path<OutPoint>,
   ) -> ServerResult<Json<OutputAPI>> {
@@ -761,7 +760,7 @@ impl Server {
     index: Arc<Index>,
     from: Option<u64>,
   ) -> ServerResult<Json<InscriptionsAPI>> {
-    let (inscriptions, prev, next, lowest, highest) =
+    let (inscriptions, prev, next, _lowest, _highest) =
       index.get_latest_inscriptions_with_prev_and_next(100, from)?;
     Ok(Json(InscriptionsAPI {
       inscriptions,
