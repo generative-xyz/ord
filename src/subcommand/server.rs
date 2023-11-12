@@ -26,7 +26,7 @@ use {
   },
   axum::{
     body,
-    extract::{Extension, Json, Path, Query},
+    extract::{Extension, Path, Query},
     headers::UserAgent,
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
@@ -246,7 +246,6 @@ impl Server {
         .route("/status", get(Self::status))
         .route("/tx/:txid", get(Self::transaction))
         .route("/api/tx/:txid", get(Self::transaction_api))
-        .route("/api/sat/:sat", get(Self::sat_api))
         .route(
           "/api/inscription/:inscription_id",
           get(Self::inscription_api),
@@ -508,20 +507,6 @@ impl Server {
     })
   }
 
-  async fn sat_api(
-    Extension(_page_config): Extension<Arc<PageConfig>>,
-    Extension(index): Extension<Arc<Index>>,
-    Path(DeserializeFromStr(sat)): Path<DeserializeFromStr<Sat>>,
-  ) -> ServerResult<Json<SatAPI>> {
-    let satpoint = index.rare_sat_satpoint(sat)?;
-    Ok(Json(SatAPI {
-      sat: (sat),
-      satpoint: (satpoint),
-      block: (index.block_time(sat.height())?).timestamp().to_string(),
-      inscription: (index.get_inscription_id_by_sat(sat)?),
-    }))
-  }
-
   async fn inscription_api(
     Extension(config): Extension<Arc<Config>>,
     Extension(page_config): Extension<Arc<PageConfig>>,
@@ -551,7 +536,7 @@ impl Server {
       .nth(satpoint.outpoint.vout.try_into().unwrap())
       .ok_or_not_found(|| format!("inscription {inscription_id} current transaction output"))?;
 
-    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+    let previous = if let Some(previous) = entry.inscription_number.checked_sub(1) {
       Some(
         index
           .get_inscription_id_by_inscription_number(previous)?
@@ -561,7 +546,7 @@ impl Server {
       None
     };
 
-    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+    let next = index.get_inscription_id_by_inscription_number(entry.inscription_number + 1)?;
 
     let content_type = inscription.content_type().unwrap();
     Ok(Json(InscriptionAPI {
@@ -576,7 +561,7 @@ impl Server {
       content_type: Some(content_type.to_string()),
       inscription_id: (inscription_id),
       next: (next),
-      number: (entry.number),
+      number: (entry.inscription_number),
       output: (output),
       previous: (previous),
       sat: (entry.sat),
@@ -656,7 +641,7 @@ impl Server {
     Extension(index): Extension<Arc<Index>>,
     Path(outpoint): Path<OutPoint>,
   ) -> ServerResult<Json<OutputAPI>> {
-    let list = if index.has_sat_index()? {
+    let list = if index.has_sat_index() {
       index.list(outpoint)?
     } else {
       None
@@ -670,10 +655,9 @@ impl Server {
           value += end - start;
         }
       }
-
       TxOut {
         value,
-        script_pubkey: Script::new(),
+        script_pubkey: ScriptBuf::new(),
       }
     } else {
       index
@@ -689,8 +673,8 @@ impl Server {
 
     Ok(Json(OutputAPI {
       outpoint: (outpoint),
-      list: (list),
-      chain: (page_config.chain),
+      // list: (list),
+      // chain: (page_config.chain),
       output: (output),
       inscriptions: (inscriptions),
     }))
@@ -730,7 +714,7 @@ impl Server {
       .nth(satpoint.outpoint.vout.try_into().unwrap())
       .ok_or_not_found(|| format!("inscription {inscription_id} current transaction output"))?;
 
-    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+    let previous = if let Some(previous) = entry.inscription_number.checked_sub(1) {
       Some(
         index
           .get_inscription_id_by_inscription_number(previous)?
@@ -740,7 +724,7 @@ impl Server {
       None
     };
 
-    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+    let next = index.get_inscription_id_by_inscription_number(entry.inscription_number + 1)?;
 
     let content_type = inscription.content_type().unwrap();
     Ok(Json(InscriptionAPI {
@@ -755,7 +739,7 @@ impl Server {
       content_type: Some(content_type.to_string()),
       inscription_id: (inscription_id),
       next: (next),
-      number: (entry.number),
+      number: (entry.inscription_number),
       output: (output),
       previous: (previous),
       sat: (entry.sat),
@@ -767,7 +751,7 @@ impl Server {
   async fn inscriptions_from_api(
     Extension(page_config): Extension<Arc<PageConfig>>,
     Extension(index): Extension<Arc<Index>>,
-    Path(from): Path<i64>,
+    Path(from): Path<u64>,
   ) -> ServerResult<Json<InscriptionsAPI>> {
     Self::inscriptions_inner_api(page_config, index, Some(from)).await
   }
@@ -775,9 +759,10 @@ impl Server {
   async fn inscriptions_inner_api(
     _page_config: Arc<PageConfig>,
     index: Arc<Index>,
-    from: Option<i64>,
+    from: Option<u64>,
   ) -> ServerResult<Json<InscriptionsAPI>> {
-    let (inscriptions, prev, next) = index.get_latest_inscriptions_with_prev_and_next(100, from)?;
+    let (inscriptions, prev, next, lowest, highest) =
+      index.get_latest_inscriptions_with_prev_and_next(100, from)?;
     Ok(Json(InscriptionsAPI {
       inscriptions,
       prev,
@@ -851,7 +836,7 @@ impl Server {
       .nth(satpoint.outpoint.vout.try_into().unwrap())
       .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
 
-    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+    let previous = if let Some(previous) = entry.inscription_number.checked_sub(1) {
       Some(
         index
           .get_inscription_id_by_inscription_number(previous)?
@@ -861,7 +846,7 @@ impl Server {
       None
     };
 
-    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+    let next = index.get_inscription_id_by_inscription_number(entry.inscription_number + 1)?;
 
     let content_type = inscription.content_type().unwrap();
     Ok(Json(InscriptionAPI {
@@ -876,7 +861,7 @@ impl Server {
       content_type: Some(content_type.to_string()),
       inscription_id: (insc_id),
       next: (next),
-      number: (entry.number),
+      number: (entry.inscription_number),
       output: (output),
       previous: (previous),
       sat: (entry.sat),
@@ -914,7 +899,7 @@ impl Server {
       .nth(satpoint.outpoint.vout.try_into().unwrap())
       .ok_or_not_found(|| format!("inscription {insc_id} current transaction output"))?;
 
-    let previous = if let Some(previous) = entry.number.checked_sub(1) {
+    let previous = if let Some(previous) = entry.inscription_number.checked_sub(1) {
       Some(
         index
           .get_inscription_id_by_inscription_number(previous)?
@@ -924,7 +909,7 @@ impl Server {
       None
     };
 
-    let next = index.get_inscription_id_by_inscription_number(entry.number + 1)?;
+    let next = index.get_inscription_id_by_inscription_number(entry.inscription_number + 1)?;
 
     let content_type = inscription.content_type().unwrap();
     Ok(Json(InscriptionAPI {
@@ -939,7 +924,7 @@ impl Server {
       content_type: Some(content_type.to_string()),
       inscription_id: (insc_id),
       next: (next),
-      number: (entry.number),
+      number: (entry.inscription_number),
       output: (output),
       previous: (previous),
       sat: (entry.sat),
@@ -1099,13 +1084,13 @@ impl Server {
     Extension(index): Extension<Arc<Index>>,
     Path(txid): Path<Txid>,
   ) -> ServerResult<Json<TxAPI>> {
-    let inscription = index.get_inscription_by_id(txid.into())?;
+    let inscription = index.get_inscription_by_id(InscriptionId { txid, index: 0 })?;
 
     let blockhash = index.get_transaction_blockhash(txid)?;
 
     Ok(Json(TxAPI {
       blockhash,
-      inscription: inscription.map(|_| txid.into()),
+      inscription: inscription.map(|_| InscriptionId { txid, index: 0 }),
       transaction: index
         .get_transaction(txid)?
         .ok_or_not_found(|| format!("transaction {txid}"))?,

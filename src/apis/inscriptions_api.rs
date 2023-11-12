@@ -4,6 +4,6 @@ use {super::*, serde::Serialize};
 
 pub(crate) struct InscriptionsAPI {
   pub(crate) inscriptions: Vec<InscriptionId>,
-  pub(crate) prev: Option<i64>,
-  pub(crate) next: Option<i64>,
+  pub(crate) prev: Option<u64>,
+  pub(crate) next: Option<u64>,
 }
