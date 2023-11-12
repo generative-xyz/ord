@@ -1,8 +1,7 @@
 use super::*;
 
 pub(crate) use {
-  inscription_api::InscriptionAPI, inscriptions_api::InscriptionsAPI, output_api::OutputAPI,
-  sat_api::SatAPI, tx_api::TxAPI,
+  inscription_api::InscriptionAPI, inscriptions_api::InscriptionsAPI, output_api::OutputAPI, tx_api::TxAPI,
 };
 
 mod inscription_api;
